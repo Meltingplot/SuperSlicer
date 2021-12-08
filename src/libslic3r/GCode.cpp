@@ -302,7 +302,7 @@ static inline void set_extra_lift(const float previous_print_z, const int layer_
             need_unretract = true;
         }
 
-        double current_z = gcodegen.writer().get_position().z();
+        double current_z = gcodegen.writer().get_unlifted_position().z();
         if (z == -1.) // in case no specific z was provided, print at current_z pos
             z = current_z;
         if (! is_approx(z, current_z)) {
