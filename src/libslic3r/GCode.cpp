@@ -16,9 +16,10 @@
 
 #include <algorithm>
 #include <cstdlib>
-#include <math.h>
-#include <string_view>
 #include <map>
+#include <math.h>
+#include <unordered_set>
+#include <string_view>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/find.hpp>
@@ -288,6 +289,7 @@ static inline void set_extra_lift(const float previous_print_z, const int layer_
             gcodegen.m_gcode_label_objects_end = "";
         }
 
+        bool need_unretract = false;
         if (! tcr.priming) {
             // Move over the wipe tower.
             // Retract for a tool change, using the toolchange retract value and setting the priming extra length.
@@ -298,17 +300,21 @@ static inline void set_extra_lift(const float previous_print_z, const int layer_
                 wipe_tower_point_to_object_point(gcodegen, start_pos),
                 erMixed);
             gcodegen.write_travel_to(gcode, polyline, "Travel to a Wipe Tower");
-            gcode += gcodegen.unretract();
+            need_unretract = true;
         }
 
-        double current_z = gcodegen.writer().get_position().z();
+        double current_z = gcodegen.writer().get_unlifted_position().z();
         if (z == -1.) // in case no specific z was provided, print at current_z pos
             z = current_z;
         if (! is_approx(z, current_z)) {
-            gcode += gcodegen.writer().retract();
+            if (!need_unretract)
+                gcode += gcodegen.writer().retract();
             gcode += gcodegen.writer().travel_to_z(z, "Travel down to the last wipe tower layer.");
-            gcode += gcodegen.writer().unretract();
+            need_unretract = true;
         }
+        // only unretract when travel is finished
+        if(need_unretract)
+            gcode += gcodegen.unretract();
 
 
         // Process the end filament gcode.
@@ -374,7 +380,7 @@ static inline void set_extra_lift(const float previous_print_z, const int layer_
         if (!is_approx(z, current_z)) {
             gcode += gcodegen.writer().retract();
             gcode += gcodegen.writer().travel_to_z(current_z, "Travel back up to the topmost object layer.");
-            gcode += gcodegen.writer().unretract();
+            //gcode += gcodegen.writer().unretract(); //why? it's done automatically later, where needed!
         } else {
         // Prepare a future wipe.
             gcodegen.m_wipe.reset_path();
@@ -2065,20 +2071,12 @@ std::string GCode::emit_custom_gcode_per_print_z(
             pause_print_msg = custom_gcode->extra;
 
         if (color_change) {
-            //update stats : weight
-            double previously_extruded = 0;
-            for (const auto& tuple : stats.color_extruderid_to_used_weight)
-                if (tuple.first == this->m_writer.tool()->id())
-                    previously_extruded += tuple.second;
-            double extruded = this->m_writer.tool()->filament_density() * this->m_writer.tool()->extruded_volume();
-            stats.color_extruderid_to_used_weight.emplace_back(this->m_writer.tool()->id(), extruded - previously_extruded);
-
             //update stats : length
-            previously_extruded = 0;
+            double previously_extruded = 0;
             for (const auto& tuple : stats.color_extruderid_to_used_filament)
-                if (tuple.first == this->m_writer.tool()->id())
+                if (tuple.first == m600_extruder_before_layer)
                     previously_extruded += tuple.second;
-            stats.color_extruderid_to_used_filament.emplace_back(this->m_writer.tool()->id(), this->m_writer.tool()->used_filament() - previously_extruded);
+            stats.color_extruderid_to_used_filament.emplace_back(m600_extruder_before_layer, this->m_writer.get_tool(m600_extruder_before_layer)->used_filament() - previously_extruded);
         }
 
         // we should add or not colorprint_change in respect to nozzle_diameter count instead of really used extruders count
@@ -2225,6 +2223,8 @@ void GCode::process_layer(
     assert(! layers.empty());
     // Either printing all copies of all objects, or just a single copy of a single object.
     assert(single_object_instance_idx == size_t(-1) || layers.size() == 1);
+    if(single_object_instance_idx != size_t(-1))
+        m_print_object_instance_id = static_cast<uint16_t>(single_object_instance_idx);
 
     if (layer_tools.extruders.empty())
         // Nothing to extrude.
@@ -2621,6 +2621,7 @@ void GCode::process_layer(
             for (InstanceToPrint &instance_to_print : instances_to_print) {
                 m_config.apply(instance_to_print.print_object.config(), true);
                 m_layer = layers[instance_to_print.layer_id].layer();
+                m_print_object_instance_id = static_cast<uint16_t>(instance_to_print.instance_id);
                 if (m_config.avoid_crossing_perimeters)
                     m_avoid_crossing_perimeters.init_layer(*m_layer);
                 //print object label to help the printer firmware know where it is (for removing the objects)
@@ -2949,24 +2950,37 @@ std::string GCode::extrude_loop_vase(const ExtrusionLoop &original_loop, const s
     // clip the path to avoid the extruder to get exactly on the first point of the loop;
     // if polyline was shorter than the clipping distance we'd get a null polyline, so
     // we discard it in that case
-    double clip_length = 0;
+    coordf_t clip_length = 0;
+    coordf_t min_clip_length = scale_(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0)) * 0.15;
     if (m_enable_loop_clipping && m_writer.tool_is_extruder())
-        clip_length = m_config.seam_gap.get_abs_value(m_writer.tool()->id(), scale_(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0)));
+        clip_length = scale_(m_config.seam_gap.get_abs_value(m_writer.tool()->id(), EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0)));
 
     // get paths
-    ExtrusionPaths paths;
-    loop.clip_end(clip_length, &paths);
+    ExtrusionPaths paths = loop.paths;
+    ExtrusionPaths clipped;
+    if (clip_length > min_clip_length) {
+        clipped = clip_end(paths, clip_length);
+        clip_end(clipped, min_clip_length);
+        for (ExtrusionPath& ep : clipped)
+            ep.mm3_per_mm = 0;
+        append(paths, clipped);
+    } else {
+        clip_end(paths, clip_length);
+    }
     if (paths.empty()) return "";
 
     // apply the small/external? perimeter speed
-    if (speed == -1 && is_perimeter(paths.front().role()) && loop.length() <=
-        scale_(this->m_config.small_perimeter_max_length.get_abs_value(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0)))) {
+    if (speed == -1 && is_perimeter(paths.front().role())){
         coordf_t min_length = scale_d(this->m_config.small_perimeter_min_length.get_abs_value(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0)));
         coordf_t max_length = scale_d(this->m_config.small_perimeter_max_length.get_abs_value(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0)));
-        if (loop.length() <= min_length) {
-            speed = m_config.small_perimeter_speed.get_abs_value(m_config.perimeter_speed);
-        } else {
-            speed = - (loop.length() - min_length) / (max_length - min_length);
+        max_length = std::max(min_length, max_length);
+        if (loop.length() < max_length) {
+            if (loop.length() <= min_length) {
+                speed = m_config.small_perimeter_speed.get_abs_value(m_config.perimeter_speed);
+            } else if (max_length > min_length) {
+                //use a negative speed: it will be use as a ratio when computing the real speed
+                speed = -(loop.length() - min_length) / (max_length - min_length);
+            }
         }
     }
 
@@ -3060,7 +3074,9 @@ std::string GCode::extrude_loop_vase(const ExtrusionLoop &original_loop, const s
             double e_per_mm_per_height = (path->mm3_per_mm / this->m_layer->height)
                 * m_writer.tool()->e_per_mm3()
                 * this->config().print_extrusion_multiplier.get_abs_value(1);
-            if (m_writer.extrusion_axis().empty()) e_per_mm_per_height = 0;
+            if (m_writer.extrusion_axis().empty())
+                e_per_mm_per_height = 0;
+            //extrude
             {
                 std::string comment = m_config.gcode_comments ? description : "";
                 for (const Line &line : path->polyline.lines()) {
@@ -3192,7 +3208,9 @@ void GCode::split_at_seam_pos(ExtrusionLoop& loop, std::unique_ptr<EdgeGrid::Gri
         Point seam = m_seam_placer.get_seam(*m_layer, seam_position, loop,
             last_pos, EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0),
             (m_layer == NULL ? nullptr : m_layer->object()),
-            was_clockwise, edge_grid_ptr);
+            m_print_object_instance_id,
+            was_clockwise,
+            edge_grid_ptr);
         // Split the loop at the point with a minium penalty.
         if (!loop.split_at_vertex(seam))
             // The point is not in the original loop. Insert it.
@@ -3266,13 +3284,23 @@ std::string GCode::extrude_loop(const ExtrusionLoop &original_loop, const std::s
     // clip the path to avoid the extruder to get exactly on the first point of the loop;
     // if polyline was shorter than the clipping distance we'd get a null polyline, so
     // we discard it in that case
-    double clip_length = 0;
+    coordf_t clip_length = 0;
+    coordf_t min_clip_length = scale_(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0)) * 0.15;
     if (m_enable_loop_clipping && m_writer.tool_is_extruder())
-        clip_length = m_config.seam_gap.get_abs_value(m_writer.tool()->id(), scale_(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0)));
+        clip_length = scale_(m_config.seam_gap.get_abs_value(m_writer.tool()->id(), EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0)));
 
     // get paths
-    ExtrusionPaths paths;
-    loop.clip_end(clip_length, &paths);
+    ExtrusionPaths paths = loop.paths;
+    ExtrusionPaths clipped;
+    if (clip_length > min_clip_length) {
+        clipped = clip_end(paths, clip_length);
+        clip_end(clipped, min_clip_length);
+        for (ExtrusionPath& ep : clipped)
+            ep.mm3_per_mm = 0;
+        append(paths, clipped);
+    } else {
+        clip_end(paths, clip_length);
+    }
     if (paths.empty()) return "";
 
     // apply the small perimeter speed
@@ -3293,7 +3321,6 @@ std::string GCode::extrude_loop(const ExtrusionLoop &original_loop, const std::s
     std::string gcode;
     for (ExtrusionPaths::iterator path = paths.begin(); path != paths.end(); ++path) {
         //path->simplify(SCALED_RESOLUTION); //should already be simplified
-        //gcode += this->_extrude(*path, description, speed);
         if(path->polyline.points.size()>1)
             gcode += extrude_path(*path, description, speed);
     }
@@ -3305,19 +3332,23 @@ std::string GCode::extrude_loop(const ExtrusionLoop &original_loop, const std::s
         m_wipe.path = paths.front().polyline;  // TODO: don't limit wipe to last path
 
     //wipe for External Perimeter
-    if (paths.back().role() == erExternalPerimeter && m_layer != NULL && m_config.perimeters.value > 1 && paths.front().size() >= 2 && paths.back().polyline.points.size() >= 2) {
+    if (paths.back().role() == erExternalPerimeter && m_layer != NULL && m_config.perimeters.value > 0 && paths.front().size() >= 2 && paths.back().polyline.points.size() >= 2) {
         //get points for wipe
         Point prev_point = *(paths.back().polyline.points.end() - 2);       // second to last point
         // *(paths.back().polyline.points.end() - 2) this is the same as (or should be) as paths.front().first_point();
         Point current_point = paths.front().first_point();
         Point next_point = paths.front().polyline.points[1];  // second point
 
+        gcode += ";" + GCodeProcessor::Wipe_Start_Tag + "\n";
         //extra wipe before the little move.
         if (EXTRUDER_CONFIG_WITH_DEFAULT(wipe_extra_perimeter, 0) > 0) {
             coordf_t wipe_dist = scale_(EXTRUDER_CONFIG_WITH_DEFAULT(wipe_extra_perimeter,0));
             ExtrusionPaths paths_wipe;
+            m_wipe.reset_path();
             for (int i = 0; i < paths.size(); i++) {
                 ExtrusionPath& path = paths[i];
+                if (wipe_dist > 0) {
+                    //first, we use the polyline for wipe_extra_perimeter
                 if (path.length() < wipe_dist) {
                     wipe_dist -= path.length();
                     paths_wipe.push_back(path);
@@ -3336,8 +3367,14 @@ std::string GCode::extrude_loop(const ExtrusionLoop &original_loop, const std::s
                     } else {
                         next_point = paths[0].first_point();
                     }
-                    break;
+                        m_wipe.path.append(path.polyline);
+                        m_wipe.path.clip_start(wipe_dist);
+                        wipe_dist -= path.length();
                 }
+                } else {
+                    //then, it's stored for the wipe on retract
+                    m_wipe.path.append(path.polyline);
+            }
             }
             //move
             for (ExtrusionPath& path : paths_wipe) {
@@ -3345,6 +3382,7 @@ std::string GCode::extrude_loop(const ExtrusionLoop &original_loop, const std::s
                     prev_point = current_point;
                     current_point = pt;
                     gcode += m_writer.travel_to_xy(this->point_to_gcode(pt), 0.0, config().gcode_comments ? "; extra wipe" : "");
+                    this->set_last_pos(pt);
                 }
             }
         }
@@ -3372,7 +3410,7 @@ std::string GCode::extrude_loop(const ExtrusionLoop &original_loop, const std::s
         Vec2d  current_pos = current_point.cast<double>();
         Vec2d  next_pos = next_point.cast<double>();
         Vec2d  vec_dist  = next_pos - current_pos;
-        double nd = scale_d(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter,0));
+        const coordf_t nd = scale_d(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter,0));
         double l2 = vec_dist.squaredNorm();
         // Shift by no more than a nozzle diameter.
         //FIXME Hiding the seams will not work nicely for very densely discretized contours!
@@ -3380,6 +3418,65 @@ std::string GCode::extrude_loop(const ExtrusionLoop &original_loop, const std::s
         pt.rotate(angle, current_point);
         // generate the travel move
         gcode += m_writer.travel_to_xy(this->point_to_gcode(pt), 0.0, "move inwards before travel");
+        this->set_last_pos(pt);
+        gcode += ";" + GCodeProcessor::Wipe_End_Tag + "\n";
+
+        // also shift the wipe on retract
+        if (m_wipe.enable) {
+            current_pos = pt.cast<double>();
+            //go to the inside (use clipper for easy shift)
+            Polygon original_polygon = original_loop.polygon();
+            Polygons polys = offset(original_polygon, (original_polygon.is_clockwise()?1:-1) * nd / 2);
+            //find nearest point
+            size_t best_poly_idx = 0;
+            size_t best_pt_idx = 0;
+            coordf_t best_sqr_dist = nd*nd*2;
+            for (size_t poly_idx = 0; poly_idx < polys.size(); poly_idx++) {
+                Polygon& poly = polys[poly_idx];
+                if (poly.is_clockwise() ^ original_polygon.is_clockwise())
+                    poly.reverse();
+                for (size_t pt_idx = 0; pt_idx < poly.points.size(); pt_idx++) {
+                    if (poly.points[pt_idx].distance_to_square(pt) < best_sqr_dist) {
+                        best_sqr_dist = poly.points[pt_idx].distance_to_square(pt);
+                        best_poly_idx = poly_idx;
+                        best_pt_idx = pt_idx;
+    }
+                }
+            }
+            if (best_sqr_dist == nd * nd * 2) {
+                //try to find an edge
+                for (size_t poly_idx = 0; poly_idx < polys.size(); poly_idx++) {
+                    Polygon& poly = polys[poly_idx];
+                    if (poly.is_clockwise() ^ original_polygon.is_clockwise())
+                        poly.reverse();
+                    poly.points.push_back(poly.points.front());
+                    for (size_t pt_idx = 0; pt_idx < poly.points.size()-1; pt_idx++) {
+                        if (Line{ poly.points[pt_idx], poly.points[pt_idx + 1] }.distance_to_squared(pt) < best_sqr_dist) {
+                            poly.points.insert(poly.points.begin() + pt_idx + 1, pt);
+                            best_sqr_dist = 0;
+                            best_poly_idx = poly_idx;
+                            best_pt_idx = pt_idx + 1;
+                            poly.points.erase(poly.points.end() - 1);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (best_sqr_dist == nd * nd * 2) {
+                //can't find a path, use the old one
+                //BOOST_LOG_TRIVIAL(warning) << "Warn: can't find a proper path for wipe on retract. Layer " << m_layer_index << ", pos " << this->point_to_gcode(pt).x() << " : " << this->point_to_gcode(pt).y() << " !";
+            } else {
+                m_wipe.reset_path();
+                //get the points from here
+                Polygon& poly = polys[best_poly_idx];
+                for (size_t pt_idx = best_pt_idx; pt_idx < poly.points.size(); pt_idx++) {
+                    m_wipe.path.append(poly.points[pt_idx]);
+                }
+                for (size_t pt_idx = 0; pt_idx < best_pt_idx; pt_idx++) {
+                    m_wipe.path.append(poly.points[pt_idx]);
+                }
+            }
+        }
     }
 
     return gcode;
@@ -3450,7 +3547,7 @@ std::string GCode::extrude_entity(const ExtrusionEntity &entity, const std::stri
 }
 
 void GCode::use(const ExtrusionEntityCollection &collection) {
-    if (collection.no_sort || collection.role() == erMixed) {
+    if (!collection.can_sort() || collection.role() == erMixed) {
         for (const ExtrusionEntity* next_entity : collection.entities) {
             next_entity->visit(*this);
         }
@@ -3840,11 +3937,12 @@ std::string GCode::_extrude(const ExtrusionPath &path, const std::string &descri
 
 double_t GCode::_compute_speed_mm_per_sec(const ExtrusionPath& path, double speed) {
 
+    float factor = 1;
     // set speed
     if (speed < 0) {
-        //if speed == -1, then it's means "choose yourself, but if it's -1 < speed <0 , then it's a scaling from small_periemter.
+        //if speed == -1, then it's means "choose yourself, but if it's -1 < speed <0 , then it's a scaling from small_perimeter.
+        factor = float(-speed);
         //it's a bit hacky, so if you want to rework it, help yourself.
-        float factor = float(-speed);
         if (path.role() == erPerimeter) {
             speed = m_config.get_computed_value("perimeter_speed");
         } else if (path.role() == erExternalPerimeter) {
@@ -3874,12 +3972,6 @@ double_t GCode::_compute_speed_mm_per_sec(const ExtrusionPath& path, double spee
         } else {
             throw Slic3r::InvalidArgument("Invalid speed");
         }
-        //don't modify bridge speed
-        if (factor < 1 && !(is_bridge(path.role()))) {
-            float small_speed = (float)m_config.small_perimeter_speed.get_abs_value(m_config.perimeter_speed);
-            //apply factor between feature speed and small speed
-            speed = (speed * factor) + double((1.f - factor) * small_speed);
-        }
     }
     if (m_volumetric_speed != 0. && speed == 0) {
         //if m_volumetric_speed, use the max size for thinwall & gapfill, to avoid variations
@@ -3904,6 +3996,14 @@ double_t GCode::_compute_speed_mm_per_sec(const ExtrusionPath& path, double spee
     }
     if (speed == 0) // this code shouldn't trigger as if it's 0, you have to get a m_volumetric_speed
         speed = m_config.max_print_speed.value;
+    // Apply small perimeter 'modifier
+    //  don't modify bridge speed
+    if (factor < 1 && !(is_bridge(path.role()))) {
+        float small_speed = (float)m_config.small_perimeter_speed.get_abs_value(m_config.perimeter_speed);
+        //apply factor between feature speed and small speed
+        speed = (speed * factor) + double((1.f - factor) * small_speed);
+    }
+    // Apply first layer modifier
     if (this->on_first_layer()) {
         const double base_speed = speed;
         if (path.role() == erInternalInfill || path.role() == erSolidInfill) {
@@ -4149,41 +4249,49 @@ Polyline GCode::travel_to(std::string &gcode, const Point &point, ExtrusionRole 
         this->origin in order to get G-code coordinates.  */
     Polyline travel { this->last_pos(), point };
 
-    // check whether a straight travel move would need retraction
-    bool will_cross_perimeter = this->can_cross_perimeter(travel);
-    bool needs_retraction = will_cross_perimeter && this->needs_retraction(travel, role);
     // check whether wipe could be disabled without causing visible stringing
     bool could_be_wipe_disabled = false;
+
+    //can use the avoid crossing algo?
+    bool can_avoid_cross_peri = m_config.avoid_crossing_perimeters
+        && !m_avoid_crossing_perimeters.disabled_once()
+        && m_avoid_crossing_perimeters.is_init()
+        && !(m_config.avoid_crossing_not_first_layer && this->on_first_layer());
+
+    // check / compute avoid_crossing_perimeters
+    bool will_cross_perimeter = this->can_cross_perimeter(travel, can_avoid_cross_peri);
 
     // if a retraction would be needed (with a low min_dist threshold), try to use avoid_crossing_perimeters to plan a
     // multi-hop travel path inside the configuration space
     if (will_cross_perimeter && this->needs_retraction(travel, role, scale_d(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0.4)) * 3)
-        && m_config.avoid_crossing_perimeters
-        && ! m_avoid_crossing_perimeters.disabled_once()
-        && m_avoid_crossing_perimeters.is_init()
-        && !(m_config.avoid_crossing_not_first_layer && this->on_first_layer())) {
+        && can_avoid_cross_peri) {
         travel = m_avoid_crossing_perimeters.travel_to(*this, point, &could_be_wipe_disabled);
-        // check again whether the new travel path still needs a retraction
-        needs_retraction = this->needs_retraction(travel, role);
-        //if (needs_retraction && m_layer_index > 1) exit(0);
     }
+    if(can_avoid_cross_peri)
+        will_cross_perimeter = this->can_cross_perimeter(travel, false);
+
+    // check whether a straight travel move would need retraction
+    bool needs_retraction = this->needs_retraction(travel, role);
+    if (m_config.only_retract_when_crossing_perimeters)
+        needs_retraction = needs_retraction && will_cross_perimeter;
 
     // Re-allow avoid_crossing_perimeters for the next travel moves
     m_avoid_crossing_perimeters.reset_once_modifiers();
 
     // generate G-code for the travel move
     if (needs_retraction) {
-        if (m_config.avoid_crossing_perimeters && could_be_wipe_disabled)
+        if (m_config.avoid_crossing_perimeters && could_be_wipe_disabled && EXTRUDER_CONFIG_WITH_DEFAULT(wipe_only_crossing, true))
             m_wipe.reset_path();
 
         Point last_post_before_retract = this->last_pos();
         gcode += this->retract();
         // When "Wipe while retracting" is enabled, then extruder moves to another position, and travel from this position can cross perimeters.
-        // Because of it, it is necessary to call avoid crossing perimeters for the path between previous last_post and last_post after calling retraction()
-        if (last_post_before_retract != this->last_pos() && m_config.avoid_crossing_perimeters) {
-            Polyline retract_travel = m_avoid_crossing_perimeters.travel_to(*this, last_post_before_retract);
-            append(retract_travel.points, travel.points);
-            travel = std::move(retract_travel);
+        if (last_post_before_retract != this->last_pos() && can_avoid_cross_peri) {
+            // Is the distance is short enough to just shortcut it?
+            if (last_post_before_retract.distance_to(this->last_pos()) > scale_d(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0.4)) * 2) {
+                // Because of it, it is necessary to redo the thing
+                travel = m_avoid_crossing_perimeters.travel_to(*this, point);
+            }
         }
     } else {
         // Reset the wipe path when traveling, so one would not wipe along an old path.
@@ -4291,7 +4399,7 @@ bool GCode::needs_retraction(const Polyline& travel, ExtrusionRole role /*=erNon
     return true;
 }
 
-bool GCode::can_cross_perimeter(const Polyline& travel)
+bool GCode::can_cross_perimeter(const Polyline& travel, bool offset)
 {
     if(m_layer != nullptr)
     if ( (m_config.only_retract_when_crossing_perimeters && m_config.fill_density.value > 0) || m_config.avoid_crossing_perimeters)
@@ -4310,13 +4418,13 @@ bool GCode::can_cross_perimeter(const Polyline& travel)
         //if (inside) {
             //contained inside at least one bb
             //construct m_layer_slices_offseted if needed
-            if (m_layer_slices_offseted.layer != m_layer) {
+            if (m_layer_slices_offseted.layer != m_layer && offset) {
                 m_layer_slices_offseted.layer = m_layer;
                 m_layer_slices_offseted.diameter = scale_t(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0.4));
-                m_layer_slices_offseted.slices = offset_ex(m_layer->lslices, - m_layer_slices_offseted.diameter * 1.5);
+                m_layer_slices_offseted.slices = offset_ex(m_layer->lslices, -m_layer_slices_offseted.diameter * 1.5f);
             }
             // test if a expoly contains the entire travel
-            for (const ExPolygon &poly : m_layer_slices_offseted.slices)
+            for (const ExPolygon &poly : offset ? m_layer_slices_offseted.slices : m_layer->lslices)
                 if (poly.contains(travel)) {
                     return false;
                 }
@@ -4349,6 +4457,8 @@ std::string GCode::retract(bool toolchange)
         methods even if we performed wipe, since this will ensure the entire retraction
         length is honored in case wipe path was too short.  */
     gcode += toolchange ? m_writer.retract_for_toolchange() : m_writer.retract();
+
+    //check if need to lift
     bool need_lift = !m_writer.tool_is_extruder() || toolchange 
         || (BOOL_EXTRUDER_CONFIG(retract_lift_first_layer) && m_config.print_retract_lift.value != 0 && this->m_layer_index == 0) 
         || this->m_writer.get_extra_lift() > 0;
@@ -4373,7 +4483,8 @@ std::string GCode::toolchange(uint16_t extruder_id, double print_z) {
 
     std::string gcode;
     // Process the custom toolchange_gcode. If it is empty, insert just a Tn command.
-    const std::string& toolchange_gcode = m_config.toolchange_gcode.value;
+    std::string toolchange_gcode = m_config.toolchange_gcode.value;
+    boost::trim(toolchange_gcode); //remove invisible characters that may compromize the 'toolchange_gcode.empty()'
     std::string toolchange_gcode_parsed;
     if (!toolchange_gcode.empty() && m_writer.multiple_extruders) {
         DynamicConfig config;

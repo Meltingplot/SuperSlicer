@@ -290,8 +290,8 @@ private:
 
 	struct InstanceToPrint
 	{
-		InstanceToPrint(ObjectByExtruder &object_by_extruder, size_t layer_id, const PrintObject &print_object, size_t instance_id) :
-			object_by_extruder(object_by_extruder), layer_id(layer_id), print_object(print_object), instance_id(instance_id) {}
+        InstanceToPrint(ObjectByExtruder& object_by_extruder, size_t layer_id, const PrintObject& print_object, size_t instance_id) :
+            object_by_extruder(object_by_extruder), layer_id(layer_id), print_object(print_object), instance_id(instance_id) {}
 
 		// Repository 
 		ObjectByExtruder		&object_by_extruder;
@@ -318,7 +318,7 @@ private:
 
     Polyline        travel_to(std::string& gcode, const Point &point, ExtrusionRole role);
     void            write_travel_to(std::string& gcode, const Polyline& travel, std::string comment);
-    bool            can_cross_perimeter(const Polyline& travel);
+    bool            can_cross_perimeter(const Polyline& travel, bool offset);
     bool            needs_retraction(const Polyline& travel, ExtrusionRole role = erNone, coordf_t max_min_dist = 0);
     std::string     retract(bool toolchange = false);
     std::string     unretract() { return m_writer.unlift() + m_writer.unretract(); }
@@ -362,6 +362,8 @@ private:
     // Current layer processed. Insequential printing mode, only a single copy will be printed.
     // In non-sequential mode, all its copies will be printed.
     const Layer*                        m_layer;
+    // idx of the current instance printed. (or the last one)
+    uint16_t                            m_print_object_instance_id = -1;
     // For crossing perimeter retraction detection  (contain the layer & nozzle widdth used to construct it)
     // !!!! not thread-safe !!!! if threaded per layer, please store it in the thread.
     struct SliceOffsetted {

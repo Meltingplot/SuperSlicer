@@ -5,9 +5,13 @@
 #include "GUI.hpp"
 #include "GUI_ObjectList.hpp"
 #include "Tab.hpp"
+
 #include <wx/scrolwin.h>
 #include <wx/display.h>
 #include <wx/file.h>
+
+#include <boost/filesystem.hpp>
+#include <boost/filesystem/path.hpp>
 
 #if ENABLE_SCROLLABLE
 static wxSize get_screen_size(wxWindow* window)
@@ -65,6 +69,10 @@ void CalibrationAbstractDialog::create(boost::filesystem::path html_path, std::s
     html_viewer = new wxHtmlWindow(this, wxID_ANY,
         wxDefaultPosition, wxDefaultSize, wxHW_SCROLLBAR_AUTO);
     html_viewer->LoadPage(GUI::from_u8(full_file_path.string()));
+    // when using hyperlink, open the browser.
+    html_viewer->Bind(wxEVT_HTML_LINK_CLICKED, [this](wxHtmlLinkEvent& evt) {
+        wxLaunchDefaultBrowser(evt.GetLinkInfo().GetHref());
+    });
     main_sizer->Add(html_viewer, 1, wxEXPAND | wxALL, 5);
 
     wxDisplay display(wxDisplay::GetFromWindow(main_frame));

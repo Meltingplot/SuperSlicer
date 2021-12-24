@@ -121,7 +121,12 @@ enum SLAMaterial {
     slamHeatResistant,
 };
 enum DenseInfillAlgo {
-    dfaAutomatic, dfaAutoNotFull, dfaAutoOrEnlarged , dfaEnlarged,
+    dfaAutomatic, 
+    dfaAutoNotFull,
+    dfaAutoOrEnlarged,
+    dfaAutoOrNothing,
+    dfaEnlarged,
+    dfaDisabled,
 };
 
 enum NoPerimeterUnsupportedAlgo {
@@ -313,8 +318,9 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<SeamPosition>::ge
 template<> inline const t_config_enum_values& ConfigOptionEnum<DenseInfillAlgo>::get_enum_values() {
     static const t_config_enum_values keys_map = {
         { "automatic", dfaAutomatic },
-        { "autosmall", dfaAutoNotFull },
+        { "autonotfull", dfaAutoNotFull },
         { "autoenlarged", dfaAutoOrEnlarged },
+        { "autosmall",  dfaAutoOrNothing},
         { "enlarged", dfaEnlarged }
     };
     return keys_map;
@@ -1171,6 +1177,7 @@ public:
     ConfigOptionFloat               wipe_advanced_multiplier;
     ConfigOptionFloats              wipe_extra_perimeter;
     ConfigOptionEnum<WipeAlgo>      wipe_advanced_algo;
+    ConfigOptionBools               wipe_only_crossing;
     ConfigOptionFloats              wipe_speed;
     ConfigOptionFloat               z_step;
     ConfigOptionString              color_change_gcode;
@@ -1288,6 +1295,7 @@ protected:
         OPT_PTR(wipe_advanced_multiplier);
         OPT_PTR(wipe_advanced_algo);
         OPT_PTR(wipe_extra_perimeter);
+        OPT_PTR(wipe_only_crossing);
         OPT_PTR(wipe_speed);
         OPT_PTR(z_step);
         OPT_PTR(color_change_gcode);
@@ -1371,6 +1379,7 @@ public:
     ConfigOptionString              printer_model;
     ConfigOptionString              printer_notes;
     ConfigOptionFloat               resolution;
+    ConfigOptionFloat               resolution_internal;
     ConfigOptionFloats              retract_before_travel;
     ConfigOptionBools               retract_layer_change;
     ConfigOptionInt                 skirt_brim;
@@ -1479,6 +1488,7 @@ protected:
         OPT_PTR(printer_model);
         OPT_PTR(printer_notes);
         OPT_PTR(resolution);
+        OPT_PTR(resolution_internal);
         OPT_PTR(retract_before_travel);
         OPT_PTR(retract_layer_change);
         OPT_PTR(seam_gap);
