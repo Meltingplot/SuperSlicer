@@ -491,17 +491,16 @@ const std::vector<std::string>& Preset::print_options()
         "fill_angle_increment",
         "bridge_angle", 
         "solid_infill_below_area", "only_retract_when_crossing_perimeters", "infill_first", 
-        "max_print_speed",
-        "max_volumetric_speed", 
         "avoid_crossing_perimeters_max_detour",
 #ifdef HAS_PRESSURE_EQUALIZER
         "max_volumetric_extrusion_rate_slope_positive", "max_volumetric_extrusion_rate_slope_negative", 
 #endif /* HAS_PRESSURE_EQUALIZER */
         "min_width_top_surface",
+        // speeds
+        "default_speed",
         "bridge_speed",
         "bridge_speed_internal",
-        // speeds
-        "external_perimeter_speed", 
+        "external_perimeter_speed",
         "first_layer_speed",
         "first_layer_min_speed",
         "infill_speed",
@@ -515,6 +514,8 @@ const std::vector<std::string>& Preset::print_options()
         "support_material_xy_spacing",
         "top_solid_infill_speed",
         "travel_speed", "travel_speed_z",
+        "max_print_speed",
+        "max_volumetric_speed",
         // gapfill
         "gap_fill",
         "gap_fill_last",
@@ -523,11 +524,22 @@ const std::vector<std::string>& Preset::print_options()
         "gap_fill_speed",
         // acceleration
         "bridge_acceleration",
+        "bridge_internal_acceleration",
         "default_acceleration",
+        "external_perimeter_acceleration",
         "first_layer_acceleration",
+        "gap_fill_acceleration",
         "infill_acceleration",
+        "ironing_acceleration",
+        "overhangs_acceleration",
         "perimeter_acceleration",
+        "solid_infill_acceleration",
+        "support_material_acceleration",
+        "support_material_interface_acceleration",
+        "thin_walls_acceleration",
+        "top_solid_infill_acceleration",
         "travel_acceleration",
+        "travel_deceleration_use_target",
         // skirt
         "skirts",
         "skirt_distance",
@@ -586,6 +598,7 @@ const std::vector<std::string>& Preset::print_options()
         "support_material_extrusion_width",
         // overlap, ratios
         "infill_overlap", "bridge_flow_ratio",
+        "solid_infill_overlap",
         "infill_anchor",
         "infill_anchor_max",
         "clip_multipart_objects",
@@ -627,9 +640,10 @@ const std::vector<std::string>& Preset::print_options()
         "thin_walls_overlap",
         "thin_walls_speed",
         "thin_walls_merge",
-        //precision, spoothign
+        //precision, smoothing
         "model_precision",
         "resolution",
+        "resolution_internal",
         "curve_smoothing_precision",
         "curve_smoothing_cutoff_dist",
         "curve_smoothing_angle_convex",
@@ -696,7 +710,7 @@ const std::vector<std::string>& Preset::filament_options()
         "filament_retract_length", "filament_retract_lift", "filament_retract_lift_above", "filament_retract_lift_below", "filament_retract_speed", "filament_deretract_speed", "filament_retract_restart_extra", "filament_retract_before_travel",
         "filament_retract_layer_change", "filament_retract_before_wipe", 
         "filament_seam_gap",
-        "filament_wipe", "filament_wipe_extra_perimeter", "filament_wipe_speed",
+        "filament_wipe", "filament_wipe_only_crossing", "filament_wipe_extra_perimeter", "filament_wipe_speed",
         // Profile compatibility
         "filament_vendor", "compatible_prints", "compatible_prints_condition", "compatible_printers", "compatible_printers_condition", "inherits"
         //merill adds
@@ -730,7 +744,7 @@ const std::vector<std::string>& Preset::printer_options()
     if (s_opts.empty()) {
         s_opts = {
             "printer_technology",
-            "bed_shape", "bed_custom_texture", "bed_custom_model", "z_offset",
+            "bed_shape", "bed_custom_texture", "bed_custom_model", "z_offset", "init_z_rotate",
             "fan_kickstart",
             "fan_speedup_overhangs",
             "fan_speedup_time",

@@ -78,6 +78,8 @@ FillConcentricWGapFill::fill_surface_extrusion(
     const FillParams &params,
     ExtrusionEntitiesPtr &out) const {
 
+    double min_gapfill_area = double(params.flow.scaled_width()) * double(params.flow.scaled_width());
+    if (params.config != nullptr) min_gapfill_area = scale_d(params.config->gap_fill_min_area.get_abs_value(params.flow.width)) * double(params.flow.scaled_width());
     // Perform offset.
     Slic3r::ExPolygons expp = offset_ex(surface->expolygon, double(scale_(0 - 0.5 * this->get_spacing())));
     // Create the infills for each of the regions.
@@ -128,7 +130,7 @@ FillConcentricWGapFill::fill_surface_extrusion(
         ExtrusionRole good_role = getRoleFromSurfaceType(params, surface);
 
         ExtrusionEntityCollection *coll_nosort = new ExtrusionEntityCollection();
-        coll_nosort->no_sort = true; //can be sorted inside the pass
+        coll_nosort->set_can_sort_reverse(false, false); //can be sorted inside the pass
         extrusion_entities_append_loops(
             coll_nosort->entities, loops,
             good_role,
@@ -149,12 +151,12 @@ FillConcentricWGapFill::fill_surface_extrusion(
             for (const ExPolygon &ex : gaps_ex) {
                 //remove too small gaps that are too hard to fill.
                 //ie one that are smaller than an extrusion with width of min and a length of max.
-                if (ex.area() > min*max) {
+                if (ex.area() > min_gapfill_area) {
                     MedialAxis{ ex, coord_t(max), coord_t(min), coord_t(params.flow.height) }.build(polylines);
                 }
             }
             if (!polylines.empty() && !is_bridge(good_role)) {
-                ExtrusionEntityCollection gap_fill = thin_variable_width(polylines, erGapFill, params.flow);
+                ExtrusionEntityCollection gap_fill = thin_variable_width(polylines, erGapFill, params.flow, scale_t(params.config->get_computed_value("resolution_internal")));
                 //set role if needed
                 if (good_role != erSolidInfill) {
                     ExtrusionSetRole set_good_role(good_role);

@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <boost/algorithm/string.hpp>
+#include <boost/log/trivial.hpp>
 
 #include <wx/sizer.h>
 #include <wx/stattext.h>
@@ -527,6 +528,12 @@ void PhysicalPrinterDialog::update(bool printer_change)
         // hide api key for klipper
         if (opt && opt->value == htKlipper) {
             m_optgroup->hide_field("printhost_apikey");
+        }
+
+        // hide api key and ca file for MPMDv2
+        if (opt && opt->value == htMPMDv2) {
+            m_optgroup->hide_field("printhost_apikey");
+            m_optgroup->hide_field("printhost_cafile");
         }
     }
     else {

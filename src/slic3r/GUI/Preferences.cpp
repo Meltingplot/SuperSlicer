@@ -4,7 +4,11 @@
 #include "Plater.hpp"
 #include "I18N.hpp"
 #include "libslic3r/AppConfig.hpp"
+
 #include <wx/notebook.h>
+
+#include <boost/filesystem.hpp>
+#include <boost/filesystem/path.hpp>
 
 namespace Slic3r {
 namespace GUI {
@@ -134,7 +138,7 @@ void PreferencesDialog::build()
 		def_combobox_auto_switch_preview.gui_flags = "show_value";
 		def_combobox_auto_switch_preview.enum_values.push_back(_u8L("Don't switch"));
 		def_combobox_auto_switch_preview.enum_values.push_back(_u8L("Switch when possible"));
-		def_combobox_auto_switch_preview.enum_values.push_back(_u8L("Only if on plater"));
+		def_combobox_auto_switch_preview.enum_values.push_back(_u8L("Only if on platter"));
 		def_combobox_auto_switch_preview.enum_values.push_back(_u8L("Only when GCode is ready"));
 		if (app_config->get("auto_switch_preview") == "0")
 			def_combobox_auto_switch_preview.set_default_value(new ConfigOptionStrings{ def_combobox_auto_switch_preview.enum_values[0] });
@@ -448,6 +452,14 @@ void PreferencesDialog::build()
 			"If disabled, the descriptions of configuration parameters in settings tabs will work as hyperlinks.");
 		def.set_default_value(new ConfigOptionBool{ app_config->get("suppress_hyperlinks") == "1" });
 		option = Option(def, "suppress_hyperlinks");
+		m_optgroups_gui.back()->append_single_option_line(option);
+
+		def.label = L("Focusing platter on mouse over");
+		def.type = coBool;
+		def.tooltip = L("If disabled, moving the mouse over the platter panel will not change the focus but some shortcuts from the platter may not work. "
+			"If enabled, moving the mouse over the platter panel will move focus there, and away from the current control.");
+		def.set_default_value(new ConfigOptionBool{ app_config->get("focus_platter_on_mouse") == "1" });
+		option = Option(def, "focus_platter_on_mouse");
 		m_optgroups_gui.back()->append_single_option_line(option);
 
 		activate_options_tab(m_optgroups_gui.back(), 3);
@@ -799,7 +811,7 @@ void PreferencesDialog::create_settings_mode_widget(wxNotebook* tabs)
 #ifndef WIN32
 		+ " " + unstable_warning
 #endif
-		+ "\n* " + _L("Old layout: all windows are in the application, settings are on the top tab bar and the plater choice in on the bottom of the plater view.")
+		+ "\n* " + _L("Old layout: all windows are in the application, settings are on the top tab bar and the platter choice in on the bottom of the platter view.")
 		+ "\n* " + _L("Settings button: all windows are in the application, no tabs: you have to clic on settings gears to switch to settings tabs.")
 		+ "\n* " + _L("Settings window: settings are displayed in their own window. You have to clic on settings gears to show the settings window.")
 	);

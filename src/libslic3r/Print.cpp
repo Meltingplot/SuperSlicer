@@ -80,6 +80,7 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "before_layer_gcode",
         "between_objects_gcode",
         "bridge_acceleration",
+        "bridge_internal_acceleration",
         "bridge_fan_speed",
         "bridge_internal_fan_speed",
         "colorprint_heights",
@@ -91,6 +92,7 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "duplicate_distance",
         "end_gcode",
         "end_filament_gcode",
+        "external_perimeter_acceleration",
         "external_perimeter_cut_corners",
         "external_perimeter_fan_speed",
         "extrusion_axis",
@@ -121,6 +123,7 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "first_layer_infill_speed",
         "first_layer_min_speed",
         "full_fan_speed_layer",
+        "gap_fill_acceleration",
         "gap_fill_speed",
         "gcode_comments",
         "gcode_filename_illegal_char",
@@ -128,6 +131,7 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "gcode_precision_xyz",
         "gcode_precision_e",
         "infill_acceleration",
+        "ironing_acceleration",
         "layer_gcode",
         "max_fan_speed",
         "max_gcode_per_second",
@@ -149,6 +153,7 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "notes",
         "only_retract_when_crossing_perimeters",
         "output_filename_format",
+        "overhangs_acceleration",
         "perimeter_acceleration",
         "post_process",
         "printer_notes",
@@ -167,17 +172,23 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "retract_speed",
         "single_extruder_multi_material_priming",
         "slowdown_below_layer_time",
+        "solid_infill_acceleration",
+        "support_material_acceleration",
+        "support_material_interface_acceleration",
         "standby_temperature_delta",
         "start_gcode",
         "start_gcode_manual",
         "start_filament_gcode",
+        "thin_walls_acceleration",
         "thin_walls_speed",
         "time_estimation_compensation",
         "tool_name",
         "toolchange_gcode",
         "top_fan_speed",
+        "top_solid_infill_acceleration",
         "threads",
         "travel_acceleration",
+        "travel_deceleration_use_target",
         "travel_speed",
         "travel_speed_z",
         "use_firmware_retraction",
@@ -185,6 +196,7 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "use_volumetric_e",
         "variable_layer_height",
         "wipe",
+        "wipe_only_crossing",
         "wipe_speed",
         "wipe_extra_perimeter"
     };
@@ -234,9 +246,12 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
             steps.emplace_back(psBrim);
             steps.emplace_back(psSkirt);
         } else if (
-               opt_key == "nozzle_diameter"
+               opt_key == "filament_shrink"
+            || opt_key == "nozzle_diameter"
+            || opt_key == "model_precision"
             || opt_key == "resolution"
-            || opt_key == "filament_shrink"
+            || opt_key == "resolution_internal"
+            || opt_key == "slice_closing_radius"
             // Spiral Vase forces different kind of slicing than the normal model:
             // In Spiral Vase mode, holes are closed and only the largest area contour is kept at each layer.
             // Therefore toggling the Spiral Vase on / off requires complete reslicing.
@@ -1630,7 +1645,7 @@ std::pair<PrintBase::PrintValidationError, std::string> Print::validate() const
                     //check not-first layer
                     if (object->region_volumes[region_id].front().first.second > layer_height) {
                         if (layer_height + EPSILON < min_layer_height)
-                            return { PrintBase::PrintValidationError::pveWrongSettings, (boost::format(L("First layer height can't be higher than %s")) % "min layer height").str() };
+                            return { PrintBase::PrintValidationError::pveWrongSettings, (boost::format(L("Layer height can't be higher than %s")) % "min layer height").str() };
                         for (auto tuple : std::vector<std::pair<double, const char*>>{
                                 {nozzle_diameter, "nozzle diameter"},
                                 {max_layer_height, "max layer height"},
@@ -2287,7 +2302,7 @@ void Print::_extrude_brim_from_tree(std::vector<std::vector<BrimLoop>>& loops, c
         } else {
             ExtrusionEntityCollection* print_me_first = new ExtrusionEntityCollection();
             parent->entities.push_back(print_me_first);
-            print_me_first->no_sort = true;
+            print_me_first->set_can_sort_reverse(false, false);
             for (Polyline& line : to_cut.lines)
                 if (line.points.back() == line.points.front()) {
                     ExtrusionPath path(erSkirt, mm3_per_mm, width, height);

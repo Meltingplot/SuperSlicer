@@ -79,6 +79,7 @@ enum PrintHostType {
     htAstroBox,
     htRepetier,
     htKlipper,
+    htMPMDv2,
 };
 
 enum AuthorizationType {
@@ -242,6 +243,7 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<PrintHostType>::g
         {"astrobox", htAstroBox},
         {"repetier", htRepetier},
         {"klipper", htKlipper},
+        {"mpmdv2", htMPMDv2},
     };
     return keys_map;
 }
@@ -700,7 +702,7 @@ public:
     ConfigOptionEnum<SupportMaterialPattern> support_material_pattern;
     // Spacing between support material lines (the hatching distance).
     ConfigOptionFloat               support_material_spacing;
-    ConfigOptionFloat               support_material_speed;
+    ConfigOptionFloatOrPercent      support_material_speed;
     ConfigOptionBool                support_material_solid_first_layer;
     ConfigOptionBool                support_material_synchronize_layers;
     // Overhang angle threshold.
@@ -791,12 +793,13 @@ public:
     ConfigOptionPercent             bridge_overlap_min;
     ConfigOptionEnum<InfillPattern> bottom_fill_pattern;
     ConfigOptionFloatOrPercent      bridged_infill_margin;
-    ConfigOptionFloat               bridge_speed;
+    ConfigOptionFloatOrPercent      bridge_speed;
     ConfigOptionFloatOrPercent      bridge_speed_internal;
     ConfigOptionFloat               curve_smoothing_precision;
     ConfigOptionFloat               curve_smoothing_cutoff_dist;
     ConfigOptionFloat               curve_smoothing_angle_convex;
     ConfigOptionFloat               curve_smoothing_angle_concave;
+    ConfigOptionFloatOrPercent      default_speed;
     ConfigOptionBool                ensure_vertical_shell_thickness;
     ConfigOptionBool                enforce_full_fill_volume;
     ConfigOptionFloatOrPercent      external_infill_margin;
@@ -824,7 +827,7 @@ public:
     ConfigOptionBool                gap_fill_last;
     ConfigOptionFloatOrPercent      gap_fill_min_area;
     ConfigOptionPercent             gap_fill_overlap;
-    ConfigOptionFloat               gap_fill_speed;
+    ConfigOptionFloatOrPercent      gap_fill_speed;
     ConfigOptionFloatOrPercent      infill_anchor;
     ConfigOptionFloatOrPercent      infill_anchor_max;
     ConfigOptionBool                hole_to_polyhole;
@@ -834,7 +837,7 @@ public:
     ConfigOptionFloatOrPercent      infill_extrusion_width;
     ConfigOptionInt                 infill_every_layers;
     ConfigOptionFloatOrPercent      infill_overlap;
-    ConfigOptionFloat               infill_speed;
+    ConfigOptionFloatOrPercent      infill_speed;
     ConfigOptionEnum<InfillConnection> infill_connection;
     ConfigOptionEnum<InfillConnection> infill_connection_solid;
     ConfigOptionEnum<InfillConnection> infill_connection_top;
@@ -868,7 +871,7 @@ public:
     ConfigOptionBool                perimeter_loop;
     ConfigOptionEnum<SeamPosition>  perimeter_loop_seam;
     ConfigOptionPercent             perimeter_overlap;
-    ConfigOptionFloat               perimeter_speed;
+    ConfigOptionFloatOrPercent      perimeter_speed;
     // Total number of perimeters.
     ConfigOptionInt                 perimeters;
     ConfigOptionPercent             print_extrusion_multiplier;
@@ -883,6 +886,7 @@ public:
     ConfigOptionFloatOrPercent      solid_infill_extrusion_width;
     ConfigOptionInt                 solid_infill_every_layers;
     ConfigOptionFloatOrPercent      solid_infill_speed;
+    ConfigOptionPercent             solid_infill_overlap;
     ConfigOptionInt                 solid_over_perimeters;
     ConfigOptionInt                 print_temperature;
     ConfigOptionBool                thin_perimeters;
@@ -890,7 +894,7 @@ public:
     ConfigOptionBool                thin_walls;
     ConfigOptionFloatOrPercent      thin_walls_min_width;
     ConfigOptionFloatOrPercent      thin_walls_overlap;
-    ConfigOptionFloat               thin_walls_speed;
+    ConfigOptionFloatOrPercent      thin_walls_speed;
     ConfigOptionEnum<InfillPattern> top_fill_pattern;
     ConfigOptionFloatOrPercent      top_infill_extrusion_width;
     ConfigOptionInt                 top_solid_layers;
@@ -916,6 +920,7 @@ protected:
         OPT_PTR(curve_smoothing_cutoff_dist);
         OPT_PTR(curve_smoothing_angle_convex);
         OPT_PTR(curve_smoothing_angle_concave);
+        OPT_PTR(default_speed);
         OPT_PTR(ensure_vertical_shell_thickness);
         OPT_PTR(enforce_full_fill_volume);
         OPT_PTR(external_infill_margin);
@@ -998,6 +1003,7 @@ protected:
         OPT_PTR(solid_infill_extrusion_width);
         OPT_PTR(solid_infill_every_layers);
         OPT_PTR(solid_infill_speed);
+        OPT_PTR(solid_infill_overlap);
         OPT_PTR(solid_over_perimeters);
         OPT_PTR(print_temperature);
         OPT_PTR(thin_perimeters);
@@ -1131,7 +1137,7 @@ public:
     ConfigOptionString              layer_gcode;
     ConfigOptionString              feature_gcode;
     ConfigOptionFloat               max_gcode_per_second;
-    ConfigOptionFloat               max_print_speed;
+    ConfigOptionFloatOrPercent      max_print_speed;
     ConfigOptionFloat               max_volumetric_speed;
 #ifdef HAS_PRESSURE_EQUALIZER
     ConfigOptionFloat               max_volumetric_extrusion_rate_slope_positive;
@@ -1177,6 +1183,7 @@ public:
     ConfigOptionFloat               wipe_advanced_multiplier;
     ConfigOptionFloats              wipe_extra_perimeter;
     ConfigOptionEnum<WipeAlgo>      wipe_advanced_algo;
+    ConfigOptionBools               wipe_only_crossing;
     ConfigOptionFloats              wipe_speed;
     ConfigOptionFloat               z_step;
     ConfigOptionString              color_change_gcode;
@@ -1294,6 +1301,7 @@ protected:
         OPT_PTR(wipe_advanced_multiplier);
         OPT_PTR(wipe_advanced_algo);
         OPT_PTR(wipe_extra_perimeter);
+        OPT_PTR(wipe_only_crossing);
         OPT_PTR(wipe_speed);
         OPT_PTR(z_step);
         OPT_PTR(color_change_gcode);
@@ -1318,6 +1326,7 @@ public:
     ConfigOptionPoints              bed_shape;
     ConfigOptionInts                bed_temperature;
     ConfigOptionFloatOrPercent      bridge_acceleration;
+    ConfigOptionFloatOrPercent      bridge_internal_acceleration;
     ConfigOptionInts                bridge_fan_speed;
     ConfigOptionInts                bridge_internal_fan_speed;
     ConfigOptionInts                chamber_temperature;
@@ -1330,6 +1339,7 @@ public:
     ConfigOptionFloatOrPercent      default_acceleration;
     ConfigOptionInts                disable_fan_first_layers;
     ConfigOptionFloat               duplicate_distance;
+    ConfigOptionFloatOrPercent      external_perimeter_acceleration;
     ConfigOptionInts                external_perimeter_fan_speed;
     ConfigOptionFloat               extruder_clearance_height;
     ConfigOptionFloat               extruder_clearance_radius;
@@ -1350,7 +1360,9 @@ public:
     ConfigOptionFloat               first_layer_min_speed;
     ConfigOptionInts                first_layer_temperature;
     ConfigOptionInts                full_fan_speed_layer;
+    ConfigOptionFloatOrPercent      gap_fill_acceleration;
     ConfigOptionFloatOrPercent      infill_acceleration;
+    ConfigOptionFloatOrPercent      ironing_acceleration;
     ConfigOptionFloat               lift_min;
     ConfigOptionInts                max_fan_speed;
     ConfigOptionFloatsOrPercents    max_layer_height;
@@ -1370,6 +1382,7 @@ public:
     ConfigOptionBool                only_retract_when_crossing_perimeters;
     ConfigOptionBool                ooze_prevention;
     ConfigOptionString              output_filename_format;
+    ConfigOptionFloatOrPercent      overhangs_acceleration;
     ConfigOptionFloatOrPercent      perimeter_acceleration;
     ConfigOptionStrings             post_process;
     ConfigOptionString              print_custom_variables;
@@ -1377,6 +1390,7 @@ public:
     ConfigOptionString              printer_model;
     ConfigOptionString              printer_notes;
     ConfigOptionFloat               resolution;
+    ConfigOptionFloat               resolution_internal;
     ConfigOptionFloats              retract_before_travel;
     ConfigOptionBools               retract_layer_change;
     ConfigOptionInt                 skirt_brim;
@@ -1389,8 +1403,12 @@ public:
     ConfigOptionInt                 skirts;
     ConfigOptionInts                slowdown_below_layer_time;
     ConfigOptionBool                spiral_vase;
+    ConfigOptionFloatOrPercent      solid_infill_acceleration;
     ConfigOptionInt                 standby_temperature_delta;
+    ConfigOptionFloatOrPercent      support_material_acceleration;
+    ConfigOptionFloatOrPercent      support_material_interface_acceleration;
     ConfigOptionInts                temperature;
+    ConfigOptionFloatOrPercent      thin_walls_acceleration;
     ConfigOptionInt                 threads;
     ConfigOptionPoints              thumbnails;
     ConfigOptionString              thumbnails_color;
@@ -1399,7 +1417,9 @@ public:
     ConfigOptionBool                thumbnails_with_bed;
     ConfigOptionPercent             time_estimation_compensation;
     ConfigOptionInts                top_fan_speed;
+    ConfigOptionFloatOrPercent      top_solid_infill_acceleration;
     ConfigOptionFloatOrPercent      travel_acceleration;
+    ConfigOptionBool                travel_deceleration_use_target;
     ConfigOptionBools               wipe;
     ConfigOptionBool                wipe_tower;
     ConfigOptionFloatOrPercent      wipe_tower_brim;
@@ -1412,6 +1432,7 @@ public:
     ConfigOptionFloats              wiping_volumes_matrix;
     ConfigOptionFloats              wiping_volumes_extruders;
     ConfigOptionFloat               z_offset;
+    ConfigOptionFloat               init_z_rotate;
 
 protected:
     PrintConfig(int) : MachineEnvelopeConfig(1), GCodeConfig(1) {}
@@ -1426,6 +1447,7 @@ protected:
         OPT_PTR(bed_shape);
         OPT_PTR(bed_temperature);
         OPT_PTR(bridge_acceleration);
+        OPT_PTR(bridge_internal_acceleration);
         OPT_PTR(bridge_fan_speed);
         OPT_PTR(bridge_internal_fan_speed);
         OPT_PTR(chamber_temperature);
@@ -1438,6 +1460,7 @@ protected:
         OPT_PTR(default_acceleration);
         OPT_PTR(disable_fan_first_layers);
         OPT_PTR(duplicate_distance);
+        OPT_PTR(external_perimeter_acceleration);
         OPT_PTR(external_perimeter_fan_speed);
         OPT_PTR(extruder_clearance_height);
         OPT_PTR(extruder_clearance_radius);
@@ -1458,7 +1481,9 @@ protected:
         OPT_PTR(first_layer_min_speed);
         OPT_PTR(first_layer_temperature);
         OPT_PTR(full_fan_speed_layer);
+        OPT_PTR(gap_fill_acceleration);
         OPT_PTR(infill_acceleration);
+        OPT_PTR(ironing_acceleration);
         OPT_PTR(lift_min);
         OPT_PTR(max_fan_speed);
         OPT_PTR(max_layer_height);
@@ -1478,6 +1503,7 @@ protected:
         OPT_PTR(only_retract_when_crossing_perimeters);
         OPT_PTR(ooze_prevention);
         OPT_PTR(output_filename_format);
+        OPT_PTR(overhangs_acceleration);
         OPT_PTR(perimeter_acceleration);
         OPT_PTR(post_process);
         OPT_PTR(print_custom_variables);
@@ -1485,9 +1511,11 @@ protected:
         OPT_PTR(printer_model);
         OPT_PTR(printer_notes);
         OPT_PTR(resolution);
+        OPT_PTR(resolution_internal);
         OPT_PTR(retract_before_travel);
         OPT_PTR(retract_layer_change);
         OPT_PTR(seam_gap);
+        OPT_PTR(solid_infill_acceleration);
         OPT_PTR(skirt_brim);
         OPT_PTR(skirt_distance);
         OPT_PTR(skirt_distance_from_brim);
@@ -1498,7 +1526,10 @@ protected:
         OPT_PTR(slowdown_below_layer_time);
         OPT_PTR(spiral_vase);
         OPT_PTR(standby_temperature_delta);
+        OPT_PTR(support_material_acceleration);
+        OPT_PTR(support_material_interface_acceleration);
         OPT_PTR(temperature);
+        OPT_PTR(thin_walls_acceleration);
         OPT_PTR(threads);
         OPT_PTR(thumbnails);
         OPT_PTR(thumbnails_color);
@@ -1507,7 +1538,9 @@ protected:
         OPT_PTR(thumbnails_with_bed);
         OPT_PTR(time_estimation_compensation);
         OPT_PTR(top_fan_speed);
+        OPT_PTR(top_solid_infill_acceleration);
         OPT_PTR(travel_acceleration);
+        OPT_PTR(travel_deceleration_use_target);
         OPT_PTR(wipe);
         OPT_PTR(wipe_tower);
         OPT_PTR(wipe_tower_brim);
@@ -1520,6 +1553,7 @@ protected:
         OPT_PTR(wiping_volumes_matrix);
         OPT_PTR(wiping_volumes_extruders);
         OPT_PTR(z_offset);
+        OPT_PTR(init_z_rotate);
     }
 };
 
@@ -1806,6 +1840,7 @@ public:
     ConfigOptionBool                        thumbnails_custom_color;
     ConfigOptionBool                        thumbnails_with_bed;
     ConfigOptionBool                        thumbnails_with_support;
+    ConfigOptionFloat                       z_rotate;
 protected:
     void initialize(StaticCacheBase &cache, const char *base_ptr)
     {
@@ -1837,6 +1872,7 @@ protected:
         OPT_PTR(thumbnails_custom_color);
         OPT_PTR(thumbnails_with_bed);
         OPT_PTR(thumbnails_with_support);
+        OPT_PTR(z_rotate);
     }
 };
 
