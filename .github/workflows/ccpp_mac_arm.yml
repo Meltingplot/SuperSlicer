@@ -13,7 +13,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        ref: 'debug_macos'
+        ref: 'Nigthly'
     - name: build deps & slicer
       run: ./BuildMacOS.sh -ia
     - name: Upload artifact
