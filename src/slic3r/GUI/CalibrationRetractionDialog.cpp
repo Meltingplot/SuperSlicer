@@ -39,12 +39,12 @@ void CalibrationRetractionDialog::create_buttons(wxStdDialogButtonSizer* buttons
     //start_step = new wxComboBox(this, wxID_ANY, wxString{ "current" }, wxDefaultPosition, wxDefaultSize, 7, choices_start);
     //start_step->SetToolTip(_(L("Select the highest temperature to test for.")));
     //start_step->SetSelection(0);
-    const DynamicPrintConfig* filament_config = this->gui_app->get_tab(Preset::TYPE_FILAMENT)->get_config();
+    const DynamicPrintConfig* filament_config = this->gui_app->get_tab(Preset::TYPE_FFF_FILAMENT)->get_config();
     int temp = int((2 + filament_config->option<ConfigOptionInts>("temperature")->get_at(0)) / 5) * 5;
     auto size = wxSize(4 * em_unit(), wxDefaultCoord);
     temp_start = new wxTextCtrl(this, wxID_ANY, std::to_string(temp), wxDefaultPosition, size);
     temp_start->SetToolTip(_L("Note that only Multiple of 5 can be engraved in the part"));
-    wxString choices_decr[] = { _L("one test"),_L("2x10°"),_L("3x10°"), _L("4x10°"), _L("3x50°"), _L("5x5°") };
+    wxString choices_decr[] = { _L("one test"),_L("2x10°"),_L("3x10°"), _L("4x10°"), _L("3x5°"), _L("5x5°") };
     decr_temp = new wxComboBox(this, wxID_ANY, wxString{ "current" }, wxDefaultPosition, wxDefaultSize, 6, choices_decr);
     decr_temp->SetToolTip(_L("Select the number tower to print, and by how many degrees C to decrease each time."));
     decr_temp->SetSelection(0);
@@ -77,7 +77,7 @@ void CalibrationRetractionDialog::create_buttons(wxStdDialogButtonSizer* buttons
 
 void CalibrationRetractionDialog::remove_slowdown(wxCommandEvent& event_args) {
 
-    const DynamicPrintConfig* filament_config = this->gui_app->get_tab(Preset::TYPE_FILAMENT)->get_config();
+    const DynamicPrintConfig* filament_config = this->gui_app->get_tab(Preset::TYPE_FFF_FILAMENT)->get_config();
     DynamicPrintConfig new_filament_config = *filament_config; //make a copy
 
     const ConfigOptionInts *fil_conf = filament_config->option<ConfigOptionInts>("slowdown_below_layer_time");
@@ -93,9 +93,9 @@ void CalibrationRetractionDialog::remove_slowdown(wxCommandEvent& event_args) {
     new_fil_conf->values[0] = 0;
     new_filament_config.set_key_value("fan_below_layer_time", new_fil_conf);
 
-    this->gui_app->get_tab(Preset::TYPE_FILAMENT)->load_config(new_filament_config);
+    this->gui_app->get_tab(Preset::TYPE_FFF_FILAMENT)->load_config(new_filament_config);
     this->main_frame->plater()->on_config_change(new_filament_config);
-    this->gui_app->get_tab(Preset::TYPE_FILAMENT)->update_dirty();
+    this->gui_app->get_tab(Preset::TYPE_FFF_FILAMENT)->update_dirty();
 
 }
 
@@ -131,14 +131,14 @@ void CalibrationRetractionDialog::create_geometry(wxCommandEvent& event_args) {
 
     std::vector<std::string> items;
     for (size_t i = 0; i < nb_items; i++)
-        items.emplace_back(Slic3r::resources_dir() + "/calibration/retraction/retraction_calibration.amf");
+        items.emplace_back((boost::filesystem::path(Slic3r::resources_dir()) / "calibration" / "retraction" / "retraction_calibration.amf").string());
     std::vector<size_t> objs_idx = plat->load_files(items, true, false, false);
 
 
     assert(objs_idx.size() == nb_items);
-    const DynamicPrintConfig* print_config = this->gui_app->get_tab(Preset::TYPE_PRINT)->get_config();
+    const DynamicPrintConfig* print_config = this->gui_app->get_tab(Preset::TYPE_FFF_PRINT)->get_config();
     const DynamicPrintConfig* printer_config = this->gui_app->get_tab(Preset::TYPE_PRINTER)->get_config();
-    const DynamicPrintConfig* filament_config = this->gui_app->get_tab(Preset::TYPE_FILAMENT)->get_config();
+    const DynamicPrintConfig* filament_config = this->gui_app->get_tab(Preset::TYPE_FFF_FILAMENT)->get_config();
 
     double retraction_start = 0;
     std::string str = temp_start->GetValue().ToStdString();
@@ -178,14 +178,14 @@ void CalibrationRetractionDialog::create_geometry(wxCommandEvent& event_args) {
         part_tower.emplace_back();
         int mytemp = temp - temp_decr * id_item;
         if (mytemp <= 285 && mytemp >= 180 && mytemp % 5 == 0) {
-            add_part(model.objects[objs_idx[id_item]], Slic3r::resources_dir() + "/calibration/filament_temp/t" + std::to_string(mytemp) + ".amf",
+            add_part(model.objects[objs_idx[id_item]], (boost::filesystem::path(Slic3r::resources_dir()) / "calibration" / "filament_temp" / ("t" + std::to_string(mytemp) + ".amf")).string(),
                 Vec3d{ 0,0, scale * 0.2 - 4.8 }, Vec3d{ scale,scale,scale });
             model.objects[objs_idx[id_item]]->volumes[1]->rotate(PI / 2, Vec3d(0, 0, 1));
             model.objects[objs_idx[id_item]]->volumes[1]->rotate(-PI / 2, Vec3d(1, 0, 0));
         }
         for (int num_retract = 0; num_retract < nb_retract; num_retract++) {
             part_tower.back().push_back(add_part(model.objects[objs_idx[id_item]], 
-                Slic3r::resources_dir() + "/calibration/retraction/retraction_calibration_pillar.amf", 
+                (boost::filesystem::path(Slic3r::resources_dir()) / "calibration" / "retraction" / "retraction_calibration_pillar.amf").string(),
                 Vec3d{ 0,0,scale * 0.7 - 0.3 + scale * num_retract }, Vec3d{ scale,scale,scale }));
         }
     }
@@ -231,13 +231,15 @@ void CalibrationRetractionDialog::create_geometry(wxCommandEvent& event_args) {
         model.objects[objs_idx[i]]->config.set_key_value("print_temperature", new ConfigOptionInt(int(temp - temp_decr * i)));
         //set retraction override
         size_t num_part = 0;
+        const int mytemp = temp - temp_decr * i;
+        const int extra_vol = (mytemp <= 285 && mytemp >= 180 && mytemp % 5 == 0) ? 2 : 1;
         for (ModelObject* part : part_tower[i]) {
-            model.objects[objs_idx[i]]->volumes[num_part + 2]->config.set_key_value("print_retract_length", new ConfigOptionFloat(retraction_start + num_part * retraction_steps));
-            model.objects[objs_idx[i]]->volumes[num_part + 2]->config.set_key_value("small_perimeter_speed", new ConfigOptionFloatOrPercent(external_perimeter_speed, false));
-            model.objects[objs_idx[i]]->volumes[num_part + 2]->config.set_key_value("perimeter_speed", new ConfigOptionFloat(std::min(external_perimeter_speed, perimeter_speed)));
-            model.objects[objs_idx[i]]->volumes[num_part + 2]->config.set_key_value("external_perimeter_speed", new ConfigOptionFloatOrPercent(external_perimeter_speed, false));
-            model.objects[objs_idx[i]]->volumes[num_part + 2]->config.set_key_value("small_perimeter_speed", new ConfigOptionFloatOrPercent(external_perimeter_speed, false));
-            //model.objects[objs_idx[i]]->volumes[num_part + 1]->config.set_key_value("infill_speed", new ConfigOptionFloat(std::min(print_config->option<ConfigOptionFloat>("infill_speed")->value, 10.*scale)));
+            model.objects[objs_idx[i]]->volumes[num_part + extra_vol]->config.set_key_value("print_retract_length", new ConfigOptionFloat(retraction_start + num_part * retraction_steps));
+            model.objects[objs_idx[i]]->volumes[num_part + extra_vol]->config.set_key_value("small_perimeter_speed", new ConfigOptionFloatOrPercent(external_perimeter_speed, false));
+            model.objects[objs_idx[i]]->volumes[num_part + extra_vol]->config.set_key_value("perimeter_speed", new ConfigOptionFloat(std::min(external_perimeter_speed, perimeter_speed)));
+            model.objects[objs_idx[i]]->volumes[num_part + extra_vol]->config.set_key_value("external_perimeter_speed", new ConfigOptionFloatOrPercent(external_perimeter_speed, false));
+            model.objects[objs_idx[i]]->volumes[num_part + extra_vol]->config.set_key_value("small_perimeter_speed", new ConfigOptionFloatOrPercent(external_perimeter_speed, false));
+            //model.objects[objs_idx[i]]->volumes[num_part + extra_vol]->config.set_key_value("infill_speed", new ConfigOptionFloat(std::min(print_config->option<ConfigOptionFloat>("infill_speed")->value, 10.*scale)));
             num_part++;
         }
     }
@@ -250,8 +252,8 @@ void CalibrationRetractionDialog::create_geometry(wxCommandEvent& event_args) {
         if (print_config->option<ConfigOptionInt>("skirts")->getInt() > 0 && print_config->option<ConfigOptionInt>("skirt_height")->getInt() > 0) {
             new_print_config.set_key_value("complete_objects_one_skirt", new ConfigOptionBool(true));
         }
-        this->gui_app->get_tab(Preset::TYPE_PRINT)->load_config(new_print_config);
-        this->gui_app->get_tab(Preset::TYPE_PRINT)->update_dirty();
+        this->gui_app->get_tab(Preset::TYPE_FFF_PRINT)->load_config(new_print_config);
+        this->gui_app->get_tab(Preset::TYPE_FFF_PRINT)->update_dirty();
         plat->on_config_change(new_print_config);
     }
 

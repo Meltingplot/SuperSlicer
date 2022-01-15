@@ -78,7 +78,7 @@ public:
     void        refresh();
 	Field*		get_field(const t_config_option_key& opt_key, int opt_index = -1) const;
 	bool		set_value(const t_config_option_key& opt_key, const boost::any& value);
-	ConfigOptionsGroupShp	new_optgroup(const wxString& title, int noncommon_title_width = -1);
+	ConfigOptionsGroupShp	new_optgroup(const wxString& title, bool no_title = false);
 
 	bool		set_item_colour(const wxColour *clr) {
 		if (m_item_color != clr) {
@@ -379,7 +379,7 @@ class TabPrint : public Tab
 public:
 	TabPrint(wxNotebook* parent) : 
 // 		Tab(parent, _(L("Print Settings")), L("print")) {}
-        Tab(parent, _(L("Print Settings")), Slic3r::Preset::TYPE_PRINT) {}
+        Tab(parent, _(L("Print Settings")), Slic3r::Preset::TYPE_FFF_PRINT) {}
 	~TabPrint() {}
 	
 	void		build() override;
@@ -411,7 +411,7 @@ protected:
 public:
 	TabFilament(wxNotebook* parent) : 
 // 		Tab(parent, _(L("Filament Settings")), L("filament")) {}
-		Tab(parent, _(L("Filament Settings")), Slic3r::Preset::TYPE_FILAMENT) {}
+		Tab(parent, _(L("Filament Settings")), Slic3r::Preset::TYPE_FFF_FILAMENT) {}
 	~TabFilament() {}
 
 	void		build() override;

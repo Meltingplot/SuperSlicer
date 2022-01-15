@@ -44,37 +44,47 @@ bool OctoPrint::test(wxString &msg) const
 
     auto http = Http::get(std::move(url));
     set_auth(http);
+    BOOST_LOG_TRIVIAL(info) << "auth set";
     http.on_error([&](std::string body, std::string error, unsigned status) {
+            BOOST_LOG_TRIVIAL(info) << "Error with '"<< body<<"'";
             BOOST_LOG_TRIVIAL(error) << boost::format("%1%: Error getting version: %2%, HTTP %3%, body: `%4%`") % name % error % status % body;
             res = false;
             msg = format_error(body, error, status);
         })
         .on_complete([&, this](std::string body, unsigned) {
-            BOOST_LOG_TRIVIAL(debug) << boost::format("%1%: Got version: %2%") % name % body;
+            BOOST_LOG_TRIVIAL(info) << boost::format("%1%: Got version: %2%") % name % body;
 
             try {
                 std::stringstream ss(body);
                 pt::ptree ptree;
+                BOOST_LOG_TRIVIAL(info) << "ready to read json";
                 pt::read_json(ss, ptree);
+                BOOST_LOG_TRIVIAL(info) << "json read";
 
                 if (! ptree.get_optional<std::string>("api")) {
+                    BOOST_LOG_TRIVIAL(info) << "Error: no api";
                     res = false;
                     return;
                 }
 
+                BOOST_LOG_TRIVIAL(info) << "text?";
                 const auto text = ptree.get_optional<std::string>("text");
+                BOOST_LOG_TRIVIAL(info) << "text="<<text;
                 res = validate_version_text(text);
+                BOOST_LOG_TRIVIAL(info) << "version validated=" << res;
                 if (! res) {
                     msg = GUI::from_u8((boost::format(_utf8(L("Mismatched type of print host: %s"))) % (text ? *text : "OctoPrint")).str());
                 }
             }
-            catch (const std::exception &) {
+            catch (const std::exception &e) {
+                BOOST_LOG_TRIVIAL(info) << "Error: exception: " << e.what();
                 res = false;
                 msg = "Could not parse server response";
             }
         })
         .perform_sync();
 
+    BOOST_LOG_TRIVIAL(info) << "test successful";
     return res;
 }
 
@@ -178,7 +188,7 @@ const char* SL1Host::get_name() const { return "SL1Host"; }
 
 wxString SL1Host::get_test_ok_msg () const
 {
-    return  wxString::Format(_L("Connection to %s works correctly."), "Prusa SL1");
+    return  wxString::Format(_L("Connection to %s works correctly."), "Prusa SL1 / SL1S");
 }
 
 wxString SL1Host::get_test_failed_msg (wxString &msg) const
@@ -205,6 +215,50 @@ void SL1Host::set_auth(Http &http) const
     }
 
     if (! get_cafile().empty()) {
+        http.ca_file(get_cafile());
+    }
+}
+
+// PrusaLink
+PrusaLink::PrusaLink(DynamicPrintConfig* config) :
+    OctoPrint(config),
+    authorization_type(dynamic_cast<const ConfigOptionEnum<AuthorizationType>*>(config->option("printhost_authorization_type"))->value),
+    username(config->opt_string("printhost_user")),
+    password(config->opt_string("printhost_password"))
+{
+}
+
+const char* PrusaLink::get_name() const { return "PrusaLink"; }
+
+wxString PrusaLink::get_test_ok_msg() const
+{
+    return _(L("Connection to PrusaLink works correctly."));
+}
+
+wxString PrusaLink::get_test_failed_msg(wxString& msg) const
+{
+    return GUI::from_u8((boost::format("%s: %s")
+        % _utf8(L("Could not connect to PrusaLink"))
+        % std::string(msg.ToUTF8())).str());
+}
+
+bool PrusaLink::validate_version_text(const boost::optional<std::string>& version_text) const
+{
+    return version_text ? (boost::starts_with(*version_text, "PrusaLink") || boost::starts_with(*version_text, "OctoPrint")) : false;
+}
+
+void PrusaLink::set_auth(Http& http) const
+{
+    switch (authorization_type) {
+    case atKeyPassword:
+        http.header("X-Api-Key", get_apikey());
+        break;
+    case atUserPassword:
+        http.auth_digest(username, password);
+        break;
+    }
+
+    if (!get_cafile().empty()) {
         http.ca_file(get_cafile());
     }
 }

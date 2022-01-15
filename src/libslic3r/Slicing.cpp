@@ -39,50 +39,69 @@ inline bool test_z_step(const coordf_t val, const coordf_t z_step) {
 }
 
 // Minimum layer height for the variable layer height algorithm.
-inline coordf_t min_layer_height_from_nozzle(const PrintConfig &print_config, int idx_nozzle)
+// idx_nozzle began at 0
+inline coordf_t min_layer_height_from_nozzle(const PrintConfig &print_config, uint16_t idx_nozzle)
 {
-    coordf_t min_layer_height = print_config.min_layer_height.get_at(idx_nozzle - 1);
+    coordf_t min_layer_height = print_config.min_layer_height.get_abs_value(idx_nozzle, print_config.nozzle_diameter.get_at(idx_nozzle));
     return check_z_step( (min_layer_height == 0.) ? (MIN_LAYER_HEIGHT_DEFAULT) : std::max(MIN_LAYER_HEIGHT, min_layer_height), print_config.z_step);
 }
 
 // Maximum layer height for the variable layer height algorithm, 3/4 of a nozzle dimaeter by default,
 // it should not be smaller than the minimum layer height.
-inline coordf_t max_layer_height_from_nozzle(const PrintConfig &print_config, int idx_nozzle)
+// idx_nozzle began at 0
+inline coordf_t max_layer_height_from_nozzle(const PrintConfig &print_config, uint16_t idx_nozzle)
 {
     coordf_t min_layer_height = min_layer_height_from_nozzle(print_config, idx_nozzle);
-    coordf_t max_layer_height = print_config.max_layer_height.get_at(idx_nozzle - 1);
-    coordf_t nozzle_dmr       = print_config.nozzle_diameter.get_at(idx_nozzle - 1);
+    coordf_t nozzle_dmr = print_config.nozzle_diameter.get_at(idx_nozzle);
+    coordf_t max_layer_height = print_config.max_layer_height.get_abs_value(idx_nozzle, nozzle_dmr);
     return check_z_step(std::max(min_layer_height, (max_layer_height == 0.) ? (0.75 * nozzle_dmr) : max_layer_height), print_config.z_step);
 }
 
 // Minimum layer height for the variable layer height algorithm.
-coordf_t Slicing::min_layer_height_from_nozzle(const DynamicPrintConfig &print_config, int idx_nozzle)
+// idx_nozzle began at 0
+coordf_t Slicing::min_layer_height_from_nozzle(const DynamicPrintConfig &print_config, uint16_t idx_nozzle)
 {
-    coordf_t min_layer_height = print_config.opt_float("min_layer_height", idx_nozzle - 1);
+    coordf_t min_layer_height = print_config.get_computed_value("min_layer_height", idx_nozzle);
     return check_z_step((min_layer_height == 0.) ? (MIN_LAYER_HEIGHT_DEFAULT) : std::max(MIN_LAYER_HEIGHT, min_layer_height), print_config.opt_float("z_step"));
 }
 
 // Maximum layer height for the variable layer height algorithm, 3/4 of a nozzle dimaeter by default,
 // it should not be smaller than the minimum layer height.
-coordf_t Slicing::max_layer_height_from_nozzle(const DynamicPrintConfig &print_config, int idx_nozzle)
+// idx_nozzle began at 0
+coordf_t Slicing::max_layer_height_from_nozzle(const DynamicPrintConfig &print_config, uint16_t idx_nozzle)
 {
     coordf_t min_layer_height = min_layer_height_from_nozzle(print_config, idx_nozzle);
-    coordf_t max_layer_height = print_config.opt_float("max_layer_height", idx_nozzle - 1);
-    coordf_t nozzle_dmr       = print_config.opt_float("nozzle_diameter", idx_nozzle - 1);
+    coordf_t max_layer_height = print_config.get_computed_value("max_layer_height", idx_nozzle);
+    coordf_t nozzle_dmr       = print_config.opt_float("nozzle_diameter", idx_nozzle);
     return check_z_step(std::max(min_layer_height, (max_layer_height == 0.) ? (0.75 * nozzle_dmr) : max_layer_height), print_config.opt_float("z_step"));
 }
+
 
 SlicingParameters SlicingParameters::create_from_config(
 	const PrintConfig 		&print_config, 
 	const PrintObjectConfig &object_config,
 	coordf_t				 object_height,
-	const std::vector<uint16_t> &object_extruders)
+	const std::set<uint16_t> &object_extruders)
 {
     //first layer height is got from the first_layer_height setting unless the value was garbage.
     // if the first_layer_height setting depends of the nozzle width, use the first one. Apply the z_step
-    coordf_t first_layer_height = (object_config.first_layer_height.get_abs_value(print_config.nozzle_diameter.empty() ? 0. : print_config.nozzle_diameter.get_at(0)) <= 0) ?
-        object_config.layer_height.value : 
-        object_config.first_layer_height.get_abs_value(print_config.nozzle_diameter.get_at(0));
+
+    //get object first layer height
+    double first_layer_height = object_config.first_layer_height.value;
+    if (object_config.first_layer_height.percent) {
+        first_layer_height = 1000000000.;
+        for (uint16_t extruder_id : object_extruders) {
+            if (print_config.nozzle_diameter.size() <= extruder_id)
+                break;
+            double nozzle_diameter = print_config.nozzle_diameter.values[extruder_id];
+            first_layer_height = std::min(first_layer_height, object_config.first_layer_height.get_abs_value(nozzle_diameter));
+        }
+        if (first_layer_height == 1000000000.)
+            first_layer_height = 0;
+    }
+
+    if (first_layer_height == 0)
+        object_config.layer_height.value;
     first_layer_height = check_z_step(first_layer_height, print_config.z_step);
     // If object_config.support_material_extruder == 0 resp. object_config.support_material_interface_extruder == 0,
     // print_config.nozzle_diameter.get_at(size_t(-1)) returns the 0th nozzle diameter,
@@ -109,18 +128,26 @@ SlicingParameters SlicingParameters::create_from_config(
     if (params.object_print_z_max < object_height) params.object_print_z_max += params.z_step;
 
     // Miniumum/maximum of the minimum layer height over all extruders.
-    params.min_layer_height = MIN_LAYER_HEIGHT;
+    params.min_layer_height = 0;
     params.max_layer_height = std::numeric_limits<double>::max();
+    params.max_suport_layer_height = 0;
     params.exact_last_layer_height = object_config.exact_last_layer_height.value;
     if (object_config.support_material.value || params.base_raft_layers > 0) {
         // Has some form of support. Add the support layers to the minimum / maximum layer height limits.
-        params.min_layer_height = std::max(
-            min_layer_height_from_nozzle(print_config, object_config.support_material_extruder), 
-            min_layer_height_from_nozzle(print_config, object_config.support_material_interface_extruder));
-        params.max_layer_height = std::min(
-            max_layer_height_from_nozzle(print_config, object_config.support_material_extruder), 
-            max_layer_height_from_nozzle(print_config, object_config.support_material_interface_extruder));
-        params.max_suport_layer_height = params.max_layer_height;
+        if (object_config.support_material_extruder > 0)
+            params.min_layer_height = std::max(params.min_layer_height,
+                min_layer_height_from_nozzle(print_config, object_config.support_material_extruder - 1));
+        if (object_config.support_material_interface_extruder > 0)
+            params.min_layer_height = std::max(params.min_layer_height,
+                min_layer_height_from_nozzle(print_config, object_config.support_material_interface_extruder - 1));
+        if (object_config.support_material_extruder > 0)
+            params.max_layer_height = std::min(params.max_layer_height,
+                max_layer_height_from_nozzle(print_config, object_config.support_material_extruder - 1));
+        if (object_config.support_material_interface_extruder > 0)
+            params.max_layer_height = std::min(params.max_layer_height,
+                max_layer_height_from_nozzle(print_config, object_config.support_material_interface_extruder - 1));
+        if (params.max_layer_height < std::numeric_limits<double>::max())
+            params.max_suport_layer_height = params.max_layer_height;
     }
     if (object_extruders.empty()) {
         params.min_layer_height = std::max(params.min_layer_height, min_layer_height_from_nozzle(print_config, 0));
@@ -136,6 +163,7 @@ SlicingParameters SlicingParameters::create_from_config(
     //apply z_step to min/max
     params.min_layer_height = check_z_step(params.min_layer_height, params.z_step);
     params.max_layer_height = check_z_step(params.max_layer_height, params.z_step);
+    if (params.max_suport_layer_height == 0) params.max_suport_layer_height = params.max_layer_height;
     params.max_suport_layer_height = check_z_step(params.max_suport_layer_height, params.z_step);
 
     if (! soluble_interface) {

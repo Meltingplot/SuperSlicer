@@ -24,6 +24,11 @@ inline ExtrusionEntitiesPtr filter_by_extrusion_role(const ExtrusionEntitiesPtr 
 
 class ExtrusionEntityCollection : public ExtrusionEntity
 {
+private:
+    // set to tru to forbit to reorder and reverse all entities indie us.
+    bool no_sort;
+    // even if no_sort, allow to reverse() us (and our entities if they allow it, but they should) 
+    bool no_reverse;
 public:
     virtual ExtrusionEntityCollection* clone() const override { return new ExtrusionEntityCollection(*this); }
     // Create a new object, initialize it with this object using the move semantics.
@@ -33,14 +38,13 @@ public:
     /// Owned ExtrusionEntities and descendent ExtrusionEntityCollections.
     /// Iterating over this needs to check each child to see if it, too is a collection.
     ExtrusionEntitiesPtr entities;     // we own these entities
-    bool no_sort;
-    ExtrusionEntityCollection(): no_sort(false) {}
-    ExtrusionEntityCollection(const ExtrusionEntityCollection &other) : no_sort(other.no_sort) { this->append(other.entities); }
-    ExtrusionEntityCollection(ExtrusionEntityCollection &&other) : entities(std::move(other.entities)), no_sort(other.no_sort) {}
+    ExtrusionEntityCollection(): no_sort(false), no_reverse(false) {}
+    ExtrusionEntityCollection(const ExtrusionEntityCollection &other) : no_sort(other.no_sort), no_reverse(other.no_reverse) { this->append(other.entities); }
+    ExtrusionEntityCollection(ExtrusionEntityCollection &&other) : entities(std::move(other.entities)), no_sort(other.no_sort), no_reverse(other.no_reverse) {}
     explicit ExtrusionEntityCollection(const ExtrusionPaths &paths);
     ExtrusionEntityCollection& operator=(const ExtrusionEntityCollection &other);
     ExtrusionEntityCollection& operator=(ExtrusionEntityCollection &&other)
-        { this->entities = std::move(other.entities); this->no_sort = other.no_sort; return *this; }
+        { this->entities = std::move(other.entities); this->no_sort = other.no_sort; this->no_reverse = other.no_reverse; return *this; }
     ~ExtrusionEntityCollection() { clear(); }
 
     /// Operator to convert and flatten this collection to a single vector of ExtrusionPaths.
@@ -55,7 +59,9 @@ public:
         }
         return out;
     }
-    bool can_reverse() const override { return !this->no_sort; }
+    void set_can_sort_reverse(bool sort, bool reverse) { this->no_sort = !sort; this->no_reverse = !reverse; }
+    bool can_sort() const { return !this->no_sort; }
+    bool can_reverse() const override { return can_sort() || !this->no_reverse; }
     bool empty() const { return this->entities.empty(); }
     void clear();
     void swap (ExtrusionEntityCollection &c);
@@ -103,11 +109,11 @@ public:
     // Produce a list of 2D polygons covered by the extruded paths, offsetted by the extrusion spacing.
     // Increase the offset by scaled_epsilon to achieve an overlap, so a union will produce no gaps.
     // Useful to calculate area of an infill, which has been really filled in by a 100% rectilinear infill.
-    void polygons_covered_by_spacing(Polygons &out, const float scaled_epsilon) const override;
+    void polygons_covered_by_spacing(Polygons &out, const float spacing_ratio, const float scaled_epsilon) const override;
     Polygons polygons_covered_by_width(const float scaled_epsilon = 0.f) const
         { Polygons out; this->polygons_covered_by_width(out, scaled_epsilon); return out; }
-    Polygons polygons_covered_by_spacing(const float scaled_epsilon = 0.f) const
-        { Polygons out; this->polygons_covered_by_spacing(out, scaled_epsilon); return out; }
+    Polygons polygons_covered_by_spacing(const float spacing_ratio, const float scaled_epsilon) const
+        { Polygons out; this->polygons_covered_by_spacing(out, spacing_ratio, scaled_epsilon); return out; }
 
     /// Recursively count paths and loops contained in this collection 
     size_t items_count() const;
@@ -115,7 +121,6 @@ public:
     /// You should be iterating over flatten().entities if you are interested in the underlying ExtrusionEntities (and don't care about hierarchy).
     /// \param preserve_ordering Flag to method that will flatten if and only if the underlying collection is sortable when True (default: False).
     ExtrusionEntityCollection flatten(bool preserve_ordering = false) const;
-    double min_mm3_per_mm() const override;
     double total_volume() const override { double volume=0.; for (const auto& ent : entities) volume+=ent->total_volume(); return volume; }
 
     // Following methods shall never be called on an ExtrusionEntityCollection.
@@ -153,7 +158,7 @@ class FlatenEntities : public ExtrusionVisitorConst {
 public:
     FlatenEntities(bool preserve_ordering) : preserve_ordering(preserve_ordering) {}
     FlatenEntities(ExtrusionEntityCollection pattern, bool preserve_ordering) : preserve_ordering(preserve_ordering) {
-        to_fill.no_sort = pattern.no_sort;
+        to_fill.set_can_sort_reverse(pattern.can_sort(), pattern.can_reverse());
     }
     ExtrusionEntityCollection get() {
         return to_fill;

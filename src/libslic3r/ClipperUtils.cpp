@@ -231,7 +231,7 @@ ClipperLib::Paths _offset(ClipperLib::Paths &&input, ClipperLib::EndType endType
         co.ArcTolerance = miterLimit;
     else
         co.MiterLimit = miterLimit;
-    double delta_scaled = delta * float(CLIPPER_OFFSET_SCALE);
+    double delta_scaled = delta * double(CLIPPER_OFFSET_SCALE);
     co.ShortestEdgeLength = double(std::abs(delta_scaled * CLIPPER_OFFSET_SHORTEST_EDGE_FACTOR));
     co.AddPaths(input, joinType, endType);
     ClipperLib::Paths retval;
@@ -598,9 +598,26 @@ ClipperLib::PolyTree _clipper_do_pl(const ClipperLib::ClipType clipType, const P
     // read input
     ClipperLib::Paths input_subject = Slic3rMultiPoints_to_ClipperPaths(subject);
     ClipperLib::Paths input_clip    = Slic3rMultiPoints_to_ClipperPaths(clip);
-    
-    // perform safety offset
+
+    // perform safety offset (before scaling because it scale & unscale)
     if (safety_offset_) safety_offset(&input_clip);
+
+    //scale to have some more precision to do some Y-bugfix
+    scaleClipperPolygons(input_subject);
+    scaleClipperPolygons(input_clip);
+
+    //perform y safing : if a line is on the same Y, clipper may not pick the good point.
+    //note: if not enough, next time, add some of the X coordinate (modulo it so it's contained in the scaling part)
+    for (ClipperLib::Paths* input : { &input_subject, &input_clip })
+        for (ClipperLib::Path& path : *input) {
+            coord_t lasty = 0;
+            for (ClipperLib::IntPoint& pt : path) {
+                if (lasty == pt.Y) {
+                    pt.Y += 50;// well below CLIPPER_OFFSET_POWER_OF_2
+                }
+                lasty = pt.Y;
+            }
+        }
     
     // init Clipper
     ClipperLib::Clipper clipper;
@@ -613,6 +630,35 @@ ClipperLib::PolyTree _clipper_do_pl(const ClipperLib::ClipType clipType, const P
     // perform operation
     ClipperLib::PolyTree retval;
     clipper.Execute(clipType, retval, fillType, fillType);
+
+    //restore good y
+    std::vector<ClipperLib::PolyNode*> to_check;
+    to_check.push_back(&retval);
+    while (!to_check.empty()) {
+        ClipperLib::PolyNode* node = to_check.back();
+        to_check.pop_back();
+        for (ClipperLib::IntPoint& pit : node->Contour) {
+            pit.X += CLIPPER_OFFSET_SCALE_ROUNDING_DELTA;
+            pit.Y += CLIPPER_OFFSET_SCALE_ROUNDING_DELTA;
+            pit.X >>= CLIPPER_OFFSET_POWER_OF_2;
+            pit.Y >>= CLIPPER_OFFSET_POWER_OF_2;
+        }
+        //note: moving in Y may create 0-length segment, so it needs an extra post-processing step to remove these duplicate points.
+        for (size_t idx = 1; idx < node->Contour.size(); ++idx) {
+            ClipperLib::IntPoint& pit = node->Contour[idx];
+            ClipperLib::IntPoint& previous = node->Contour[idx - 1];
+            // unscaling remove too small differences. The equality is enough.
+            if (pit.X == previous.X && pit.Y == previous.Y) {
+                node->Contour.erase(node->Contour.begin() + idx);
+                --idx;
+            }
+        }
+        //be sure you don't save 1-point paths
+        if (node->Contour.size() == 1)
+            node->Contour.clear();
+        to_check.insert(to_check.end(), node->Childs.begin(), node->Childs.end());
+    }
+
     return retval;
 }
 
@@ -1228,8 +1274,9 @@ ExPolygons variable_offset_inner_ex(const ExPolygon &expoly, const std::vector<s
 	holes.reserve(expoly.holes.size());
 	for (const Polygon& hole : expoly.holes)
 		append(holes, fix_after_outer_offset(mittered_offset_path_scaled(hole.points, deltas[1 + &hole - expoly.holes.data()], miter_limit), ClipperLib::pftNegative, false));
+    //tiny holes can be reduced to giberish, get rid of them.
     for (auto it = holes.begin(); it != holes.end();)
-        if (ClipperLib::Area(*it) < 0.) {
+        if (ClipperLib::Area(*it) < double(CLIPPER_OFFSET_SCALE) * double(CLIPPER_OFFSET_SCALE)) {
             it = holes.erase(it);
         }
         else ++it;

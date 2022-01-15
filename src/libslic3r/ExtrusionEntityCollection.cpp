@@ -61,7 +61,7 @@ void ExtrusionEntityCollection::reverse()
     {
         // Don't reverse it if it's a loop, as it doesn't change anything in terms of elements ordering
         // and caller might rely on winding order
-        if (!ptr->can_reverse())
+        if (ptr->can_reverse() && !ptr->is_loop())
             ptr->reverse();
     }
     std::reverse(this->entities.begin(), this->entities.end());
@@ -121,10 +121,10 @@ void ExtrusionEntityCollection::polygons_covered_by_width(Polygons &out, const f
         entity->polygons_covered_by_width(out, scaled_epsilon);
 }
 
-void ExtrusionEntityCollection::polygons_covered_by_spacing(Polygons &out, const float scaled_epsilon) const
+void ExtrusionEntityCollection::polygons_covered_by_spacing(Polygons &out, const float spacing_ratio, const float scaled_epsilon) const
 {
     for (const ExtrusionEntity *entity : this->entities)
-        entity->polygons_covered_by_spacing(out, scaled_epsilon);
+        entity->polygons_covered_by_spacing(out, spacing_ratio, scaled_epsilon);
 }
 
 // Recursively count paths and loops contained in this collection.
@@ -151,7 +151,7 @@ ExtrusionEntityCollection ExtrusionEntityCollection::flatten(bool preserve_order
 }
 void
 FlatenEntities::use(const ExtrusionEntityCollection &coll) {
-    if ((coll.no_sort || this->to_fill.no_sort) && preserve_ordering) {
+    if ((!coll.can_sort() || !this->to_fill.can_sort()) && preserve_ordering) {
         FlatenEntities unsortable(coll, preserve_ordering);
         for (const ExtrusionEntity* entity : coll.entities) {
             entity->visit(unsortable);
@@ -168,17 +168,6 @@ ExtrusionEntityCollection&&
 FlatenEntities::flatten(const ExtrusionEntityCollection &to_flatten) && {
     use(to_flatten);
     return std::move(to_fill);
-}
-
-
-double
-ExtrusionEntityCollection::min_mm3_per_mm() const
-{
-    double min_mm3_per_mm = std::numeric_limits<double>::max();
-    for (const ExtrusionEntity *entity : this->entities)
-        if(entity->role() != erGapFill && entity->role() != erThinWall && entity->role() != erMilling)
-            min_mm3_per_mm = std::min(min_mm3_per_mm, entity->min_mm3_per_mm());
-    return min_mm3_per_mm;
 }
 
 }

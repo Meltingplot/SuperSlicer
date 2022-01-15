@@ -75,12 +75,18 @@ void CalibrationBridgeDialog::create_geometry(std::string setting_to_test, bool 
 
     std::vector<std::string> items;
     for (size_t i = 0; i < nb_items; i++)
-        items.emplace_back(Slic3r::resources_dir()+"/calibration/bridge_flow/bridge_test.amf");
+        items.emplace_back((boost::filesystem::path(Slic3r::resources_dir()) / "calibration" / "bridge_flow" / "bridge_test.amf").string());
     std::vector<size_t> objs_idx = plat->load_files(items, true, false, false);
 
     assert(objs_idx.size() == nb_items);
-    const DynamicPrintConfig* print_config = this->gui_app->get_tab(Preset::TYPE_PRINT)->get_config();
+    const DynamicPrintConfig* print_config = this->gui_app->get_tab(Preset::TYPE_FFF_PRINT)->get_config();
+    const DynamicPrintConfig* filament_config = this->gui_app->get_tab(Preset::TYPE_FFF_FILAMENT)->get_config();
     const DynamicPrintConfig* printer_config = this->gui_app->get_tab(Preset::TYPE_PRINTER)->get_config();
+    DynamicPrintConfig full_print_config;
+    full_print_config.apply(*print_config);
+    full_print_config.apply(*filament_config);
+    full_print_config.apply(*printer_config);
+    full_print_config.set_key_value("extruder_id", new ConfigOptionInt(0));
 
     /// --- scale ---
     // model is created for a 0.4 nozzle, scale xy with nozzle size.
@@ -103,7 +109,7 @@ void CalibrationBridgeDialog::create_geometry(std::string setting_to_test, bool 
     for (size_t i = 0; i < nb_items; i++) {
         int step_num = (start + (add ? 1 : -1) * i * step);
         if (step_num < 180 && step_num > 20 && step_num%5 == 0) {
-            add_part(model.objects[objs_idx[i]], Slic3r::resources_dir() + "/calibration/bridge_flow/f" + std::to_string(step_num) + ".amf", Vec3d{ -10,0, zshift + 4.6 * z_scale }, Vec3d{ 1,1,z_scale });
+            add_part(model.objects[objs_idx[i]], (boost::filesystem::path(Slic3r::resources_dir()) / "calibration" / "bridge_flow" / ("f" + std::to_string(step_num) + ".amf")).string(), Vec3d{ -10,0, zshift + 4.6 * z_scale }, Vec3d{ 1,1,z_scale });
         }
     }
     /// --- translate ---;
@@ -141,15 +147,31 @@ void CalibrationBridgeDialog::create_geometry(std::string setting_to_test, bool 
         model.objects[objs_idx[i]]->config.set_key_value(setting_to_test, new ConfigOptionPercent(start + (add ? 1 : -1) * i * step));
         model.objects[objs_idx[i]]->config.set_key_value("layer_height", new ConfigOptionFloat(nozzle_diameter / 2));
         model.objects[objs_idx[i]]->config.set_key_value("no_perimeter_unsupported_algo", new ConfigOptionEnum<NoPerimeterUnsupportedAlgo>(npuaBridges));
-        model.objects[objs_idx[i]]->config.set_key_value("top_fill_pattern", new ConfigOptionEnum<InfillPattern>(ipSmooth));
+        //model.objects[objs_idx[i]]->config.set_key_value("top_fill_pattern", new ConfigOptionEnum<InfillPattern>(ipSmooth)); /not needed
+        model.objects[objs_idx[i]]->config.set_key_value("ironing", new ConfigOptionBool(false)); // not needed, and it slow down things.
+    }
+    /// if first ayer height is excactly at the wrong value, the text isn't drawed. Fix that by switching the first layer height just a little bit.
+    double first_layer_height = full_print_config.get_computed_value("first_layer_height", 0);
+    double layer_height = nozzle_diameter * 0.5;
+    if (layer_height > 0.01 && (int(first_layer_height * 100) % int(layer_height * 100)) == int(layer_height * 50)) {
+        double z_step = printer_config->option<ConfigOptionFloat>("z_step")->value;
+        if (z_step == 0)
+            z_step = 0.1;
+        double max_height = full_print_config.get_computed_value("max_layer_height",0);
+        if (max_height > first_layer_height + z_step)
+            for (size_t i = 0; i < nb_items; i++)
+                model.objects[objs_idx[i]]->config.set_key_value("first_layer_height", new ConfigOptionFloatOrPercent(first_layer_height + z_step, false));
+        else
+            for (size_t i = 0; i < nb_items; i++)
+                model.objects[objs_idx[i]]->config.set_key_value("first_layer_height", new ConfigOptionFloatOrPercent(first_layer_height - z_step, false));
     }
 
     //update plater
     GLCanvas3D::set_warning_freeze(false);
-    this->gui_app->get_tab(Preset::TYPE_PRINT)->load_config(new_print_config);
+    this->gui_app->get_tab(Preset::TYPE_FFF_PRINT)->load_config(new_print_config);
     plat->on_config_change(new_print_config);
     plat->changed_objects(objs_idx);
-    //this->gui_app->get_tab(Preset::TYPE_PRINT)->update_dirty();
+    //this->gui_app->get_tab(Preset::TYPE_FFF_PRINT)->update_dirty();
     //update everything, easier to code.
     ObjectList* obj = this->gui_app->obj_list();
     obj->update_after_undo_redo();

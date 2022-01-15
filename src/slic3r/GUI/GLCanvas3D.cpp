@@ -65,6 +65,7 @@
 #include <float.h>
 #include <algorithm>
 #include <cmath>
+#include <set>
 #include "DoubleSlider.hpp"
 
 #include <imgui/imgui_internal.h>
@@ -460,36 +461,36 @@ void GLCanvas3D::LayersEditing::render_volumes(const GLCanvas3D& canvas, const G
         // The layer editing shader was already active.
         current_shader = nullptr;
 
-        const_cast<LayersEditing*>(this)->generate_layer_height_texture();
+    const_cast<LayersEditing*>(this)->generate_layer_height_texture();
 
-        // Uniforms were resolved, go ahead using the layer editing shader.
+    // Uniforms were resolved, go ahead using the layer editing shader.
     shader->set_uniform("z_to_texture_row", float(m_layers_texture.cells - 1) / (float(m_layers_texture.width) * float(m_object_max_z)));
     shader->set_uniform("z_texture_row_to_normalized", 1.0f / float(m_layers_texture.height));
     shader->set_uniform("z_cursor", float(m_object_max_z) * float(this->get_cursor_z_relative(canvas)));
     shader->set_uniform("z_cursor_band_width", float(this->band_width));
 
-        // Initialize the layer height texture mapping.
-        GLsizei w = (GLsizei)m_layers_texture.width;
-        GLsizei h = (GLsizei)m_layers_texture.height;
-        GLsizei half_w = w / 2;
-        GLsizei half_h = h / 2;
-        glsafe(::glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
-        glsafe(::glBindTexture(GL_TEXTURE_2D, m_z_texture_id));
-        glsafe(::glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
-        glsafe(::glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, half_w, half_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
-        glsafe(::glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, m_layers_texture.data.data()));
-        glsafe(::glTexSubImage2D(GL_TEXTURE_2D, 1, 0, 0, half_w, half_h, GL_RGBA, GL_UNSIGNED_BYTE, m_layers_texture.data.data() + m_layers_texture.width * m_layers_texture.height * 4));
-        for (const GLVolume* glvolume : volumes.volumes) {
-            // Render the object using the layer editing shader and texture.
-            if (! glvolume->is_active || glvolume->composite_id.object_id != this->last_object_id || glvolume->is_modifier)
-                continue;
+    // Initialize the layer height texture mapping.
+    GLsizei w = (GLsizei)m_layers_texture.width;
+    GLsizei h = (GLsizei)m_layers_texture.height;
+    GLsizei half_w = w / 2;
+    GLsizei half_h = h / 2;
+    glsafe(::glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+    glsafe(::glBindTexture(GL_TEXTURE_2D, m_z_texture_id));
+    glsafe(::glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
+    glsafe(::glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, half_w, half_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
+    glsafe(::glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, m_layers_texture.data.data()));
+    glsafe(::glTexSubImage2D(GL_TEXTURE_2D, 1, 0, 0, half_w, half_h, GL_RGBA, GL_UNSIGNED_BYTE, m_layers_texture.data.data() + m_layers_texture.width * m_layers_texture.height * 4));
+    for (const GLVolume* glvolume : volumes.volumes) {
+        // Render the object using the layer editing shader and texture.
+        if (! glvolume->is_active || glvolume->composite_id.object_id != this->last_object_id || glvolume->is_modifier)
+            continue;
 
-        shader->set_uniform("volume_world_matrix", glvolume->world_matrix());
-        shader->set_uniform("object_max_z", GLfloat(0));
-            glvolume->render();
-        }
-        // Revert back to the previous shader.
-        glBindTexture(GL_TEXTURE_2D, 0);
+    shader->set_uniform("volume_world_matrix", glvolume->world_matrix());
+    shader->set_uniform("object_max_z", GLfloat(0));
+        glvolume->render();
+    }
+    // Revert back to the previous shader.
+    glBindTexture(GL_TEXTURE_2D, 0);
     if (current_shader != nullptr)
         current_shader->start_using();
 }
@@ -637,12 +638,12 @@ void GLCanvas3D::WarningTexture::activate(WarningTexture::Warning warning, bool 
     std::string text;
     bool error = false;
     switch (warning) {
-    case ObjectOutside: text = L("An object outside the print area was detected."); break;
-    case ToolpathOutside: text = L("A toolpath outside the print area was detected."); error = true; break;
-    case SlaSupportsOutside: text = L("SLA supports outside the print area were detected."); error = true; break;
-    case SomethingNotShown: text = L("Some objects are not visible."); break;
+    case ObjectOutside: text = _u8L("An object outside the print area was detected."); break;
+    case ToolpathOutside: text = _u8L("A toolpath outside the print area was detected."); error = true; break;
+    case SlaSupportsOutside: text = _u8L("SLA supports outside the print area were detected."); error = true; break;
+    case SomethingNotShown: text = _u8L("Some objects are not visible."); break;
     case ObjectClashed:
-        text = L( "An object outside the print area was detected.\n"
+        text = _u8L( "An object outside the print area was detected.\n"
                   "Resolve the current problem to continue slicing.");
         error = true;
         break;
@@ -1136,13 +1137,13 @@ void GLCanvas3D::load_arrange_settings()
         wxGetApp().app_config->get("arrange", "enable_rotation_sla");
 
     if (!dist_fff_str.empty())
-        m_arrange_settings_fff.distance = std::stof(dist_fff_str);
+        m_arrange_settings_fff.previously_used_distance = std::stof(dist_fff_str);
 
     if (!dist_fff_seq_print_str.empty())
-        m_arrange_settings_fff_seq_print.distance = std::stof(dist_fff_seq_print_str);
+        m_arrange_settings_fff_seq_print.previously_used_distance = std::stof(dist_fff_seq_print_str);
 
     if (!dist_sla_str.empty())
-        m_arrange_settings_sla.distance = std::stof(dist_sla_str);
+        m_arrange_settings_sla.previously_used_distance = std::stof(dist_sla_str);
 
     if (!en_rot_fff_str.empty())
         m_arrange_settings_fff.enable_rotation = (en_rot_fff_str == "1" || en_rot_fff_str == "yes");
@@ -1158,9 +1159,8 @@ void GLCanvas3D::load_arrange_settings()
 void GLCanvas3D::set_arrange_settings(const DynamicPrintConfig& conf, PrinterTechnology tech) {
 
     const ConfigOptionFloat* dd_opt = conf.option<ConfigOptionFloat>("duplicate_distance");
-    const ConfigOptionFloat* dd2_opt = m_config->option<ConfigOptionFloat>("duplicate_distance");
 
-    if (dd_opt && dd_opt != 0) {
+    if (dd_opt && dd_opt->value != 0) {
         float dist = 6.f;
         if (tech == ptSLA) {
             dist = dd_opt->value;
@@ -1174,7 +1174,40 @@ void GLCanvas3D::set_arrange_settings(const DynamicPrintConfig& conf, PrinterTec
             dist += dd_opt->value;
         }
         this->get_arrange_settings().distance = dist;
+    } else {
+        this->get_arrange_settings().distance = this->get_arrange_settings().previously_used_distance;
     }
+}
+
+// update last arrange dist from current print conf.
+void GLCanvas3D::set_last_arrange_settings(float new_value) {
+
+    PrinterTechnology ptech = current_printer_technology();
+    std::string postfix;
+
+    auto* ptr = &m_arrange_settings_fff;
+
+    if (ptech == ptSLA) {
+        ptr = &m_arrange_settings_sla;
+        postfix = "_sla";
+    } else if (ptech == ptFFF) {
+        auto co_opt = m_config->template option<ConfigOptionBool>("complete_objects");
+        if (co_opt && co_opt->value) {
+            ptr = &m_arrange_settings_fff_seq_print;
+            postfix = "_fff_seq_print";
+        } else {
+            ptr = &m_arrange_settings_fff;
+            postfix = "_fff";
+        }
+    }
+    ptr->previously_used_distance = new_value;
+
+    auto& appcfg = wxGetApp().app_config;
+    std::string dist_key = "min_object_distance", rot_key = "enable_rotation";
+    dist_key += postfix;
+    rot_key += postfix;
+    appcfg->set("arrange", dist_key.c_str(), std::to_string(new_value));
+    appcfg->set("arrange", rot_key.c_str(), ptr->enable_rotation ? "1" : "0");
 }
 
 PrinterTechnology GLCanvas3D::current_printer_technology() const
@@ -1339,9 +1372,10 @@ void GLCanvas3D::reset_volumes(bool is_destroying)
 
     _set_current();
 
-        m_selection.clear(is_destroying);
-        m_volumes.clear();
-        m_dirty = true;
+    m_selection.clear(is_destroying);
+    m_volumes.release_geometry();
+    m_volumes.clear();
+    m_dirty = true;
 
     if(!is_destroying)
         _set_warning_texture(WarningTexture::ObjectOutside, false);
@@ -1493,10 +1527,12 @@ bool GLCanvas3D::is_layers_editing_allowed() const
 
 void GLCanvas3D::reset_layer_height_profile()
 {
-    wxGetApp().plater()->take_snapshot(_L("Variable layer height - Reset"));
-    m_layers_editing.reset_layer_height_profile(*this);
-    m_layers_editing.state = LayersEditing::Completed;
-    m_dirty = true;
+    if (is_layers_editing_enabled()) {
+        wxGetApp().plater()->take_snapshot(_L("Variable layer height - Reset"));
+        m_layers_editing.reset_layer_height_profile(*this);
+        m_layers_editing.state = LayersEditing::Completed;
+        m_dirty = true;
+    }
 }
 
 void GLCanvas3D::adaptive_layer_height_profile(float quality_factor)
@@ -2243,7 +2279,7 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
 
             const Print *print = m_process->fff_print();
 
-            const DynamicPrintConfig &print_config  = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+            const DynamicPrintConfig &print_config  = wxGetApp().preset_bundle->fff_prints.get_edited_preset().config;
             double layer_height                     = print_config.opt_float("layer_height");
             double first_layer_height               = print_config.get_abs_value("first_layer_height", layer_height);
             double nozzle_diameter                  = print->config().nozzle_diameter.values[0];
@@ -2326,21 +2362,21 @@ static void reserve_new_volume_finalize_old_volume(GLVolume& vol_new, GLVolume& 
 	vol_old.finalize_geometry(gl_initialized);
 }
 
-void GLCanvas3D::load_gcode_preview(const GCodeProcessor::Result& gcode_result)
+void GLCanvas3D::load_gcode_preview(const GCodeProcessor::Result& gcode_result, const std::vector<std::string>& str_tool_colors)
 {
-    m_gcode_viewer.load(gcode_result, *this->fff_print(), m_initialized);
+    if (m_dirty_gcode) {
+        m_dirty_gcode = false;
+        m_gcode_viewer.load(gcode_result, *this->fff_print(), m_initialized);
 
-    if (wxGetApp().is_editor()) {
-        m_gcode_viewer.update_shells_color_by_extruder(m_config);
-        _show_warning_texture_if_needed(WarningTexture::ToolpathOutside);
+        if (wxGetApp().is_editor()) {
+            m_gcode_viewer.update_shells_color_by_extruder(m_config);
+            _show_warning_texture_if_needed(WarningTexture::ToolpathOutside);
+        }
+
+        m_gcode_viewer.refresh(gcode_result, str_tool_colors);
+        set_as_dirty();
+        request_extra_frame();
     }
-}
-
-void GLCanvas3D::refresh_gcode_preview(const GCodeProcessor::Result& gcode_result, const std::vector<std::string>& str_tool_colors)
-{
-    m_gcode_viewer.refresh(gcode_result, str_tool_colors);
-    set_as_dirty();
-    request_extra_frame();
 }
 
 #if ENABLE_RENDER_PATH_REFRESH_AFTER_OPTIONS_CHANGE
@@ -2367,23 +2403,27 @@ void GLCanvas3D::load_sla_preview()
 
 void GLCanvas3D::load_preview(const std::vector<std::string>& str_tool_colors, const std::vector<CustomGCode::Item>& color_print_values)
 {
-    const Print *print = this->fff_print();
+    const Print* print = this->fff_print();
     if (print == nullptr)
         return;
 
     _set_current();
 
-    // Release OpenGL data before generating new data.
-    this->reset_volumes();
+    if (m_dirty_preview || m_volumes.empty()) {
+        m_dirty_preview = false;
+        // Release OpenGL data before generating new data.
+        this->reset_volumes();
+        //note: this isn't releasing all the memory in all os, can make it crash on linux for exemple.
 
-    _load_print_toolpaths();
-    _load_wipe_tower_toolpaths(str_tool_colors);
-    for (const PrintObject* object : print->objects())
+        _load_print_toolpaths();
+        _load_wipe_tower_toolpaths(str_tool_colors);
+        for (const PrintObject* object : print->objects())
             _load_print_object_toolpaths(*object, str_tool_colors, color_print_values);
 
-    _update_toolpath_volumes_outside_state();
-    _show_warning_texture_if_needed(WarningTexture::ToolpathOutside);
+        _update_toolpath_volumes_outside_state();
+        _show_warning_texture_if_needed(WarningTexture::ToolpathOutside);
     }
+}
 
 void GLCanvas3D::bind_event_handlers()
 {
@@ -4054,30 +4094,20 @@ bool GLCanvas3D::_render_arrange_menu(float pos_x)
     ArrangeSettings settings = get_arrange_settings();
     ArrangeSettings &settings_out = get_arrange_settings();
 
-    auto &appcfg = wxGetApp().app_config;
     PrinterTechnology ptech = m_process->current_printer_technology();
 
     bool settings_changed = false;
     float dist_min = 0.f;
-    std::string dist_key = "min_object_distance", rot_key = "enable_rotation";
-    std::string postfix;
-
     if (ptech == ptSLA) {
-        dist_min     = 0.f;
-        postfix      = "_sla";
+        dist_min = 0.f;
     } else if (ptech == ptFFF) {
         auto co_opt = m_config->option<ConfigOptionBool>("complete_objects");
         if (co_opt && co_opt->value) {
-            dist_min     = float(PrintConfig::min_object_distance(m_config) * 2);
-            postfix      = "_fff_seq_print";
+            dist_min = float(PrintConfig::min_object_distance(m_config) * 2);
         } else {
-            dist_min     = 0.f;
-            postfix     = "_fff";
+            dist_min = 0.f;
         }
     }
-
-    dist_key += postfix;
-    rot_key  += postfix;
 
     imgui->text(GUI::format_wxstr(_L("Press %1%left mouse button to enter the exact value"), shortkey_ctrl_prefix()));
 
@@ -4085,16 +4115,17 @@ bool GLCanvas3D::_render_arrange_menu(float pos_x)
         if (dist_min > settings.distance) {
             const ConfigOptionFloat* dd_opt = this->m_config->option<ConfigOptionFloat>("duplicate_distance");
             if (dd_opt)
-                settings.distance = dist_min + dd_opt->value;
+                if (dd_opt->value == 0)
+                    settings_out.distance = settings.previously_used_distance;
+                else
+                    settings.distance = dist_min + dd_opt->value;
         }
         settings_out.distance = settings.distance;
-        appcfg->set("arrange", dist_key.c_str(), std::to_string(settings_out.distance));
         settings_changed = true;
     }
 
     if (imgui->checkbox(_L("Enable rotations (slow)"), settings.enable_rotation)) {
         settings_out.enable_rotation = settings.enable_rotation;
-        appcfg->set("arrange", rot_key.c_str(), settings_out.enable_rotation? "1" : "0");
         settings_changed = true;
     }
 
@@ -4103,11 +4134,12 @@ bool GLCanvas3D::_render_arrange_menu(float pos_x)
     if (imgui->button(_L("Reset"))) {
         settings_out = ArrangeSettings{};
         const ConfigOptionFloat* dd_opt = this->m_config->option<ConfigOptionFloat>("duplicate_distance");
-        if(dd_opt)
+        if (dd_opt)
+            if (dd_opt->value == 0)
+                settings_out.distance = settings.previously_used_distance;
+            else
                 settings_out.distance = dist_min + dd_opt->value;
         settings_out.distance = std::max(dist_min, settings_out.distance);
-        appcfg->set("arrange", dist_key.c_str(), std::to_string(settings_out.distance));
-        appcfg->set("arrange", rot_key.c_str(), settings_out.enable_rotation? "1" : "0");
         settings_changed = true;
     }
 
@@ -4834,8 +4866,8 @@ bool GLCanvas3D::_init_collapse_toolbar()
 
 bool GLCanvas3D::_set_current()
 {
-    return m_context != nullptr && m_canvas->SetCurrent(*m_context);
-    }
+    return m_context != nullptr && m_canvas->IsShownOnScreen() && m_canvas->SetCurrent(*m_context);
+}
 
 void GLCanvas3D::_resize(unsigned int w, unsigned int h)
 {
@@ -5793,9 +5825,30 @@ void GLCanvas3D::_load_print_toolpaths()
         volume->print_zs.emplace_back(print_zs[i]);
         volume->offsets.emplace_back(volume->indexed_vertex_array.quad_indices.size());
         volume->offsets.emplace_back(volume->indexed_vertex_array.triangle_indices.size());
-        if (i == 0)
+        if (i == 0) {
+            //skirt & brim from print
             _3DScene::extrusionentity_to_verts(print->brim(), print_zs[i], Point(0, 0), *volume);
-        _3DScene::extrusionentity_to_verts(print->skirt(), print_zs[i], Point(0, 0), *volume);
+            if(print->skirt_first_layer())
+                _3DScene::extrusionentity_to_verts(*print->skirt_first_layer(), print_zs[i], Point(0, 0), *volume);
+            //skirt & brim from objects
+            for (const PrintObject* print_object : print->objects()) {
+                if (!print_object->brim().empty())
+                    for(const PrintInstance& inst : print_object->instances())
+                        _3DScene::extrusionentity_to_verts(print_object->brim(), print_zs[i], inst.shift, *volume);
+                if (print_object->skirt_first_layer())
+                    for (const PrintInstance& inst : print_object->instances())
+                        _3DScene::extrusionentity_to_verts(*print_object->skirt_first_layer(), print_zs[i], inst.shift, *volume);
+            }
+        }
+        //skirts from print
+        if (i != 0 || !print->skirt_first_layer())
+            _3DScene::extrusionentity_to_verts(print->skirt(), print_zs[i], Point(0, 0), *volume);
+        //skirts from objects
+        for (const PrintObject* print_object : print->objects()) {
+            if ( !print_object->skirt().empty() && (i != 0 || !print_object->skirt_first_layer()))
+                for (const PrintInstance& inst : print_object->instances())
+                    _3DScene::extrusionentity_to_verts(print_object->skirt(), print_zs[i], inst.shift, *volume);
+        }
         // Ensure that no volume grows over the limits. If the volume is too large, allocate a new one.
         if (volume->indexed_vertex_array.vertices_and_normals_interleaved.size() > MAX_VERTEX_BUFFER_SIZE) {
         	GLVolume &vol = *volume;
@@ -6571,7 +6624,7 @@ void GLCanvas3D::WipeTowerInfo::apply_wipe_tower() const
     cfg.opt<ConfigOptionFloat>("wipe_tower_x", true)->value = m_pos(X);
     cfg.opt<ConfigOptionFloat>("wipe_tower_y", true)->value = m_pos(Y);
     cfg.opt<ConfigOptionFloat>("wipe_tower_rotation_angle", true)->value = (180./M_PI) * m_rotation;
-    wxGetApp().get_tab(Preset::TYPE_PRINT)->load_config(cfg);
+    wxGetApp().get_tab(Preset::TYPE_FFF_PRINT)->load_config(cfg);
 }
 
 

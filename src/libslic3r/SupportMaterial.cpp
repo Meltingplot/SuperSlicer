@@ -152,8 +152,10 @@ PrintObjectSupportMaterial::PrintObjectSupportMaterial(const PrintObject *object
 {
     // Calculate a minimum support layer height as a minimum over all extruders, but not smaller than 10um.
     m_support_layer_height_min = 1000000.;
-    for (auto lh : m_print_config->min_layer_height.values)
-        m_support_layer_height_min = std::min(m_support_layer_height_min, std::max(0.01, lh));
+    const ConfigOptionFloatsOrPercents& min_layer_height = m_print_config->min_layer_height;
+    const ConfigOptionFloats& nozzle_diameter = m_print_config->nozzle_diameter;
+    for (int extr_id = 0; extr_id < min_layer_height.values.size(); ++extr_id)
+        m_support_layer_height_min = std::min(m_support_layer_height_min, std::max(0.01, min_layer_height.get_abs_value(extr_id, nozzle_diameter.get_at(extr_id))));
 
     if (m_object_config->support_material_interface_layers.value == 0) {
         // No interface layers allowed, print everything with the base support pattern.
@@ -172,7 +174,7 @@ PrintObjectSupportMaterial::PrintObjectSupportMaterial(const PrintObject *object
     m_can_merge_support_regions = m_object_config->support_material_extruder.value == m_object_config->support_material_interface_extruder.value;
     if (! m_can_merge_support_regions && (m_object_config->support_material_extruder.value == 0 || m_object_config->support_material_interface_extruder.value == 0)) {
         // One of the support extruders is of "don't care" type.
-        auto object_extruders = m_object->print()->object_extruders(m_object->print()->objects());
+        std::set<uint16_t> object_extruders = m_object->print()->object_extruders(m_object->print()->objects());
         if (object_extruders.size() == 1 &&
             *object_extruders.begin() == std::max<unsigned int>(m_object_config->support_material_extruder.value, m_object_config->support_material_interface_extruder.value))
             // Object is printed with the same extruder as the support.
@@ -3051,7 +3053,7 @@ void PrintObjectSupportMaterial::generate_toolpaths(
                     //FIXME misusing contact_polygons for support columns.
                     ((raft_layer.contact_polygons == nullptr) ? Polygons() : *raft_layer.contact_polygons);
                 if (! to_infill_polygons.empty()) {
-                    Flow flow(float(m_support_material_flow.width), float(raft_layer.height), m_support_material_flow.nozzle_diameter, raft_layer.bridging);
+                    Flow flow(float(m_support_material_flow.width), float(raft_layer.height), m_support_material_flow.nozzle_diameter, m_support_material_flow.spacing_ratio, raft_layer.bridging);
                     // find centerline of the external loop/extrusions
                     ExPolygons to_infill = (support_layer_id == 0 || ! with_sheath) ?
                         // union_ex(base_polygons, true) :
@@ -3108,7 +3110,7 @@ void PrintObjectSupportMaterial::generate_toolpaths(
                 // We don't use $base_flow->spacing because we need a constant spacing
                 // value that guarantees that all layers are correctly aligned.
                 spacing = m_support_material_flow.spacing();
-                flow          = Flow(float(m_support_material_interface_flow.width), float(raft_layer.height), m_support_material_flow.nozzle_diameter, raft_layer.bridging);
+                flow          = Flow(float(m_support_material_interface_flow.width), float(raft_layer.height), m_support_material_flow.nozzle_diameter, m_support_material_flow.spacing_ratio, raft_layer.bridging);
                 density       = float(interface_density);
             } else
                 continue;
@@ -3225,8 +3227,11 @@ void PrintObjectSupportMaterial::generate_toolpaths(
                     float(layer_ex.layer->bridging ? layer_ex.layer->height : (interface_as_base ? m_support_material_flow.width : m_support_material_interface_flow.width)),
                     float(layer_ex.layer->height),
                     m_support_material_interface_flow.nozzle_diameter,
+                    m_support_material_interface_flow.spacing_ratio,
                     layer_ex.layer->bridging);
                 Fill *filler = i == 2 ? filler_intermediate_interface.get() : filler_interface.get();
+                filler->layer_id = support_layer_id;
+                filler->z = support_layer.print_z;
                 float density = interface_density;
                 coordf_t spacing;
                 //if first layer and solid first layer : draw concentric with 100% density
@@ -3267,6 +3272,7 @@ void PrintObjectSupportMaterial::generate_toolpaths(
                     float(base_layer.layer->bridging ? base_layer.layer->height : m_support_material_flow.width), 
                     float(base_layer.layer->height), 
                     m_support_material_flow.nozzle_diameter, 
+                    m_support_material_flow.spacing_ratio,
                     base_layer.layer->bridging);
                 coordf_t spacing = m_support_material_flow.spacing();
                 filler->link_max_length = coord_t(scale_(spacing * link_max_length_factor / support_density));

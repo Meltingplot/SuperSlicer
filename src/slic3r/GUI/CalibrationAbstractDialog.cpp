@@ -40,23 +40,23 @@ namespace GUI {
 
     }
 
-void CalibrationAbstractDialog::create(std::string html_path, std::string html_name, wxSize dialog_size){
+void CalibrationAbstractDialog::create(boost::filesystem::path html_path, std::string html_name, wxSize dialog_size){
 
     auto main_sizer = new wxBoxSizer(wxVERTICAL);
 
     //language
     wxString language = wxGetApp().current_language_code();
-    std::string full_file_path = Slic3r::resources_dir() + html_path+"/"+ into_u8(language)+"_"+ html_name;
+    boost::filesystem::path full_file_path = (boost::filesystem::path(Slic3r::resources_dir()) / html_path/ (into_u8(language) + "_"+ html_name));
     if (language == "en") {
-        full_file_path = Slic3r::resources_dir() + html_path + "/" + html_name;
+        full_file_path = (boost::filesystem::path(Slic3r::resources_dir()) / html_path / (html_name));
     }else if (!boost::filesystem::exists(full_file_path)) {
         language = wxGetApp().current_language_code_safe();
-        full_file_path = Slic3r::resources_dir() + html_path + "/" + into_u8(language) + "_" + html_name;
+        full_file_path = (boost::filesystem::path(Slic3r::resources_dir()) / html_path / (into_u8(language) + "_" + html_name));
         if (!boost::filesystem::exists(full_file_path)) {
             language = language.IsEmpty() ? "en" : language.BeforeFirst('_');
-            full_file_path = Slic3r::resources_dir() + html_path + "/" + into_u8(language) + "_" + html_name;
+            full_file_path = (boost::filesystem::path(Slic3r::resources_dir()) / html_path / (into_u8(language) + "_" + html_name));
             if (!boost::filesystem::exists(full_file_path)) {
-                full_file_path = Slic3r::resources_dir() + html_path + "/" + html_name;
+                full_file_path = (boost::filesystem::path(Slic3r::resources_dir()) / html_path / (html_name));
             }
         }
     }
@@ -64,7 +64,11 @@ void CalibrationAbstractDialog::create(std::string html_path, std::string html_n
     //html
     html_viewer = new wxHtmlWindow(this, wxID_ANY,
         wxDefaultPosition, wxDefaultSize, wxHW_SCROLLBAR_AUTO);
-    html_viewer->LoadPage(full_file_path);
+    html_viewer->LoadPage(GUI::from_u8(full_file_path.string()));
+    // when using hyperlink, open the browser.
+    html_viewer->Bind(wxEVT_HTML_LINK_CLICKED, [this](wxHtmlLinkEvent& evt) {
+        wxLaunchDefaultBrowser(evt.GetLinkInfo().GetHref());
+    });
     main_sizer->Add(html_viewer, 1, wxEXPAND | wxALL, 5);
 
     wxDisplay display(wxDisplay::GetFromWindow(main_frame));
@@ -124,6 +128,7 @@ ModelObject* CalibrationAbstractDialog::add_part(ModelObject* model_object, std:
 
             // set a default extruder value, since user can't add it manually
             new_volume->config.set_key_value("extruder", new ConfigOptionInt(0));
+            new_volume->config.set_key_value("first_layer_extruder", new ConfigOptionInt(0));
 
             //move to bed
             /* const TriangleMesh& hull = new_volume->get_convex_hull();

@@ -41,11 +41,11 @@ enum QuickSlice
     qsExportPNG = 8
 };
 
-struct PresetTab {
-    std::string       name;
-    Tab*              panel;
-    PrinterTechnology technology;
-};
+//struct PresetTab {
+//    std::string       name;
+//    Tab*              panel;
+//    PrinterTechnology technology;
+//};
 
 // ----------------------------------------------------------------------------
 // SettingsDialog
@@ -89,6 +89,7 @@ class MainFrame : public DPIFrame
 
     void on_presets_changed(SimpleEvent&);
     void on_value_changed(wxCommandEvent&);
+    void update_icon();
 
     bool can_start_new_project() const;
     bool can_save() const;
@@ -173,6 +174,7 @@ public:
     void        create_preset_tabs();
     void        add_created_tab(Tab* panel);
     bool        is_active_and_shown_tab(Tab* tab);
+    void        change_tab(Tab* old_tab, Tab* new_tab);
     // Register Win32 RawInput callbacks (3DConnexion) and removable media insert / remove callbacks.
     // Called from wxEVT_ACTIVATE, as wxEVT_CREATE was not reliable (bug in wxWidgets?).
     void        register_win32_callbacks();
@@ -185,16 +187,16 @@ public:
     bool        is_last_input_file() const  { return !m_qs_last_input_file.IsEmpty(); }
     ESettingsLayout get_layout() const { return m_layout; }
 
-    void        quick_slice(const int qs = qsUndef);
+//    void        quick_slice(const int qs = qsUndef);
     void        reslice_now();
     void        repair_stl();
     void        export_config(bool to_prusa = false);
     // Query user for the config file and open it.
-    void        load_config_file();
+    void        load_config_file(bool from_prusa = false);
     // Open a config file. Return true if loaded.
-    bool        load_config_file(const std::string &path);
+    bool        load_config_file(const std::string &path, bool from_prusa = false);
     void        export_configbundle(bool export_physical_printers = false);
-    void        load_configbundle(wxString file = wxEmptyString);
+    void        load_configbundle(wxString file = wxEmptyString, bool from_prusa = false);
     void        load_config(const DynamicPrintConfig& config);
     // Select tab in m_tabpanel
     // When tab == -1, will be selected last selected tab

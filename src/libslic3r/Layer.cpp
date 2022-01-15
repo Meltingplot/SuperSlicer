@@ -158,12 +158,14 @@ void Layer::make_perimeters()
                 && config.extra_perimeters_odd_layers == other_config.extra_perimeters_odd_layers
                 && config.extra_perimeters_overhangs == other_config.extra_perimeters_overhangs
                 && config.gap_fill                  == other_config.gap_fill
+                && config.gap_fill_last             == other_config.gap_fill_last
                 && config.gap_fill_min_area         == other_config.gap_fill_min_area
                 && config.gap_fill_overlap          == other_config.gap_fill_overlap
                 && config.gap_fill_speed            == other_config.gap_fill_speed
                 && config.infill_dense              == other_config.infill_dense
                 && config.infill_dense_algo         == other_config.infill_dense_algo
                 && config.no_perimeter_unsupported_algo == other_config.no_perimeter_unsupported_algo
+                && (this->id() == 0 || config.only_one_perimeter_first_layer == other_config.only_one_perimeter_first_layer)
                 && config.only_one_perimeter_top    == other_config.only_one_perimeter_top
                 && config.only_one_perimeter_top_other_algo == other_config.only_one_perimeter_top_other_algo
                 && config.overhangs_width_speed     == other_config.overhangs_width_speed

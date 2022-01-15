@@ -14,7 +14,7 @@ FillConcentric::init_spacing(coordf_t spacing, const FillParams &params)
 {
     Fill::init_spacing(spacing, params);
     if (params.density > 0.9999f && !params.dont_adjust) {
-        this->spacing_priv = unscale<double>(this->_adjust_solid_spacing(bounding_box.size()(0), _line_spacing_for_density(params.density)));
+        this->spacing_priv = unscaled(this->_adjust_solid_spacing(bounding_box.size()(0), _line_spacing_for_density(params.density)));
     }
 }
 
@@ -128,7 +128,7 @@ FillConcentricWGapFill::fill_surface_extrusion(
         ExtrusionRole good_role = getRoleFromSurfaceType(params, surface);
 
         ExtrusionEntityCollection *coll_nosort = new ExtrusionEntityCollection();
-        coll_nosort->no_sort = true; //can be sorted inside the pass
+        coll_nosort->set_can_sort_reverse(false, false); //can be sorted inside the pass
         extrusion_entities_append_loops(
             coll_nosort->entities, loops,
             good_role,
@@ -154,7 +154,7 @@ FillConcentricWGapFill::fill_surface_extrusion(
                 }
             }
             if (!polylines.empty() && !is_bridge(good_role)) {
-                ExtrusionEntityCollection gap_fill = thin_variable_width(polylines, erGapFill, params.flow);
+                ExtrusionEntityCollection gap_fill = thin_variable_width(polylines, erGapFill, params.flow, scale_t(params.config->get_computed_value("resolution_internal")));
                 //set role if needed
                 if (good_role != erSolidInfill) {
                     ExtrusionSetRole set_good_role(good_role);
@@ -174,8 +174,8 @@ FillConcentricWGapFill::fill_surface_extrusion(
     ExPolygons gapfill_areas = diff_ex({ surface->expolygon }, offset_ex(expp, double(scale_(0.5 * this->get_spacing()))));
     gapfill_areas = union_ex(gapfill_areas, true);
     if (gapfill_areas.size() > 0) {
-        double minarea = params.flow.scaled_width() * params.flow.scaled_width();
-        if (params.config != nullptr) minarea = scale_(params.config->gap_fill_min_area.get_abs_value(params.flow.width)) * params.flow.scaled_width();
+        double minarea = double(params.flow.scaled_width()) * double(params.flow.scaled_width());
+        if (params.config != nullptr) minarea = scale_d(params.config->gap_fill_min_area.get_abs_value(params.flow.width)) * double(params.flow.scaled_width());
         for (int i = 0; i < gapfill_areas.size(); i++) {
             if (gapfill_areas[i].area() < minarea) {
                 gapfill_areas.erase(gapfill_areas.begin() + i);

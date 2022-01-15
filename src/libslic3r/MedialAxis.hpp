@@ -109,13 +109,13 @@ class MedialAxis {
         /// taper the ends of polylines (don't activate that for gapfill)
         void taper_ends(ThickPolylines& pp);
         //cleaning method
-        void check_width(ThickPolylines& pp, double max_width, std::string msg);
+        void check_width(ThickPolylines& pp, coord_t max_width, std::string msg);
         //removing small extrusion that won't be useful and will harm print. A bit like fusion_corners but more lenient and with just del.
         void remove_bits(ThickPolylines& pp);
 };
     
     /// create a ExtrusionEntityCollection from ThickPolylines, discretizing the variable width into little sections (of 4*SCALED_RESOLUTION length) where needed.
-    ExtrusionEntityCollection thin_variable_width(const ThickPolylines &polylines, ExtrusionRole role, Flow flow);
+    ExtrusionEntityCollection thin_variable_width(const ThickPolylines &polylines, ExtrusionRole role, Flow flow, coord_t resolution_internal);
 }
 
 

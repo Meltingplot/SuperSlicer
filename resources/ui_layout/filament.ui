@@ -21,6 +21,7 @@ group:Filament properties
 	setting:width$7:filament_type
 	setting:filament_soluble
     setting:filament_shrink
+	setting:filament_max_overlap
 group:Print speed override
 	setting:filament_max_speed
 	setting:filament_max_volumetric_speed
@@ -30,7 +31,10 @@ page:Cooling:time
 group:Fan speed - default
 	setting:label$Run the fan at default speed when possible:fan_always_on
 	setting:min_fan_speed
-	setting:bridge_fan_speed
+	line:Bridges fan speed
+		setting:label$:bridge_fan_speed
+		setting:label$Infill bridges:bridge_internal_fan_speed
+	end_line
 	setting:top_fan_speed
 	setting:external_perimeter_fan_speed
 	line:Disable fan for the first
@@ -82,14 +86,16 @@ group:Toolchange parameters with single extruder MM printers
 filament_overrides_page
 
 page:Custom G-code:cog
-group:nolabel:Start G-code
+group:no_title:Start G-code
 	setting:full_width:height$35:start_filament_gcode
-group:nolabel:End G-code
+group:no_title:End G-code
 	setting:full_width:height$35:end_filament_gcode
 
 page:Notes:note.png
 group:label_width$0:Notes
 	setting:full_width:height$25:filament_notes
+group:label_width$0:Custom variables
+	setting:full_width:height$15:filament_custom_variables
 
 page:Dependencies:wrench.png
 	group:Profile dependencies

@@ -16,16 +16,14 @@ namespace Slic3r {
 
 struct SurfaceFillParams : FillParams
 {
-    // Zero based extruder ID.
-    unsigned int    extruder = 0;
     // Infill pattern, adjusted for the density etc.
     InfillPattern   pattern = InfillPattern(0);
 
     // FillBase
     // in unscaled coordinates
-    coordf_t        spacing = 0.;
+    double        spacing = 0.;
     // infill / perimeter overlap, in unscaled coordinates
-    coordf_t        overlap = 0.;
+    double        overlap = 0.;
     // Angle as provided by the region config, in radians.
     float           angle = 0.f;
     // Non-negative for a bridge.
@@ -61,6 +59,7 @@ struct SurfaceFillParams : FillParams
         RETURN_COMPARE_NON_EQUAL(flow.nozzle_diameter);
         RETURN_COMPARE_NON_EQUAL_TYPED(unsigned, flow.bridge);
         RETURN_COMPARE_NON_EQUAL_TYPED(unsigned, role);
+        RETURN_COMPARE_NON_EQUAL_TYPED(int32_t, priority);
         return false;
     }
 
@@ -79,7 +78,8 @@ struct SurfaceFillParams : FillParams
                 this->anchor_length_max     == rhs.anchor_length_max&&
                 this->fill_exactly          == rhs.fill_exactly     &&
                 this->flow                  == rhs.flow             &&
-                this->role                  == rhs.role;
+                this->role                  == rhs.role             &&
+                this->priority              == rhs.priority;
     }
 };
 
@@ -112,11 +112,12 @@ std::vector<SurfaceFill> group_fills(const Layer &layer)
                 FlowRole extrusion_role = surface.has_pos_top() ? frTopSolidInfill : (surface.has_fill_solid() ? frSolidInfill : frInfill);
                 bool     is_bridge      = layer.id() > 0 && surface.has_mod_bridge();
                 bool     is_denser      = false;
-                params.extruder         = layerm.region()->extruder(extrusion_role);
+                params.extruder         = layerm.region()->extruder(extrusion_role, *layer.object());
                 params.pattern          = region_config.fill_pattern.value;
                 params.density          = float(region_config.fill_density) / 100.f;
                 params.dont_adjust      = false;
                 params.connection       = region_config.infill_connection.value;
+                params.priority         = 0;
 
                 if (surface.has_fill_solid()) {
                     params.density = 1.f;
@@ -142,6 +143,8 @@ std::vector<SurfaceFill> group_fills(const Layer &layer)
                         is_denser = true;
                         is_bridge = true;
                         params.pattern = ipRectiWithPerimeter;
+                        params.priority = surface.priority;
+                        params.dont_adjust = true; // keep the 42% density
                         params.connection = InfillConnection::icConnected;
                     }
                     if (params.density <= 0 && !is_denser)
@@ -149,7 +152,7 @@ std::vector<SurfaceFill> group_fills(const Layer &layer)
                 }
                 //adjust spacing/density (to over-extrude when needed)
                 if (surface.has_mod_overBridge()) {
-                    params.density = float(layerm.region()->config().over_bridge_flow_ratio.get_abs_value(1));
+                    params.density = float(region_config.over_bridge_flow_ratio.get_abs_value(1));
                 }
 
                 //note: same as getRoleFromSurfaceType()
@@ -256,7 +259,9 @@ std::vector<SurfaceFill> group_fills(const Layer &layer)
         Polygons all_polygons;
         for (SurfaceFill &fill : surface_fills)
             if (! fill.expolygons.empty()) {
-                if (fill.expolygons.size() > 1 || ! all_polygons.empty()) {
+                if (fill.params.priority > 0) {
+                    append(all_polygons, to_polygons(fill.expolygons));
+                }else if (fill.expolygons.size() > 1 || !all_polygons.empty()) {
                     Polygons polys = to_polygons(std::move(fill.expolygons));
                     // Make a union of polygons, use a safety offset, subtract the preceding polygons.
                     // Bridges are processed first (see SurfaceFill::operator<())
@@ -324,7 +329,7 @@ std::vector<SurfaceFill> group_fills(const Layer &layer)
                 }
             if (internal_solid_fill == nullptr) {
                 // Produce another solid fill.
-                params.extruder = layerm.region()->extruder(frSolidInfill);
+                params.extruder = layerm.region()->extruder(frSolidInfill, *layer.object());
                 params.pattern  = layerm.region()->config().solid_fill_pattern.value;
                 params.density  = 100.f;
                 params.role     = erInternalInfill;
@@ -390,14 +395,47 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
     std::vector<SurfaceFill>  surface_fills = group_fills(*this);
     const Slic3r::BoundingBox bbox = this->object()->bounding_box();
 
+    std::sort(surface_fills.begin(), surface_fills.end(), [](SurfaceFill& s1, SurfaceFill& s2) {
+        if (s1.region_id == s2.region_id)
+            return s1.params.priority < s2.params.priority;
+        return s1.region_id < s2.region_id;
+        });
+
 #ifdef SLIC3R_DEBUG_SLICE_PROCESSING
     {
         static int iRun = 0;
         export_group_fills_to_svg(debug_out_path("Layer-fill_surfaces-10_fill-final-%d.svg", iRun ++).c_str(), surface_fills);
     }
 #endif /* SLIC3R_DEBUG_SLICE_PROCESSING */
-
+    std::vector<ExtrusionEntityCollection*> fills_by_priority;
+    auto store_fill = [&fills_by_priority, this](size_t region_id) {
+        if (fills_by_priority.size() == 1) {
+            m_regions[region_id]->fills.append(fills_by_priority[0]->entities);
+            delete fills_by_priority[0];
+        } else {
+            m_regions[region_id]->fills.set_can_sort_reverse(false, false);
+            ExtrusionEntityCollection* eec = new ExtrusionEntityCollection();
+            eec->set_can_sort_reverse(false, false);
+            m_regions[region_id]->fills.entities.push_back(eec);
+            for (ExtrusionEntityCollection* per_priority : fills_by_priority) {
+                if (!per_priority->entities.empty())
+                    eec->entities.push_back(per_priority);
+                else
+                    delete per_priority;
+            }
+        }
+        fills_by_priority.clear();
+    };
+    //surface_fills is sorted by region_id
+    size_t current_region_id = -1;
     for (SurfaceFill &surface_fill : surface_fills) {
+        // store the region fill when changing region. 
+        if (current_region_id != size_t(-1) && current_region_id != surface_fill.region_id) {
+            store_fill(current_region_id);
+        }
+        current_region_id = surface_fill.region_id;
+        const LayerRegion* layerm = this->m_regions[surface_fill.region_id];
+        
         // Create the filler object.
         std::unique_ptr<Fill> f = std::unique_ptr<Fill>(Fill::new_from_type(surface_fill.params.pattern));
         f->set_bounding_box(bbox);
@@ -408,6 +446,8 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
 
         // calculate flow spacing for infill pattern generation
         bool using_internal_flow = ! surface_fill.surface.has_fill_solid() && ! surface_fill.params.flow.bridge;
+        //init spacing, it may also use & modify a bit the surface_fill.params, so most of these should be set before.
+        // note that the bridge overlap is applied here via the rectilinear init_spacing. 
         f->init_spacing(surface_fill.params.spacing, surface_fill.params);
         double link_max_length = 0.;
         if (! surface_fill.params.flow.bridge) {
@@ -422,13 +462,13 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
 
         // Maximum length of the perimeter segment linking two infill lines.
         f->link_max_length = (coord_t)scale_(link_max_length);
-        // Used by the concentric infill pattern to clip the loops to create extrusion paths.
-        f->loop_clipping = coord_t(scale_(surface_fill.params.flow.nozzle_diameter) * LOOP_CLIPPING_LENGTH_OVER_NOZZLE_DIAMETER);
 
         //give the overlap size to let the infill do his overlap
         //add overlap if at least one perimeter
-        const LayerRegion* layerm = this->m_regions[surface_fill.region_id];
         const float perimeter_spacing = layerm->flow(frPerimeter).spacing();
+
+        // Used by the concentric infill pattern to clip the loops to create extrusion paths.
+        f->loop_clipping = scale_t(layerm->region()->config().get_computed_value("seam_gap", surface_fill.params.extruder - 1) * surface_fill.params.flow.nozzle_diameter);
 
         // apply half spacing using this flow's own spacing and generate infill
         //FillParams params;
@@ -442,18 +482,18 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
             // so we can safely ignore the slight variation that might have
             // been applied to $f->flow_spacing
         } else {
-            surface_fill.params.flow = Flow::new_from_spacing((float)f->get_spacing(), surface_fill.params.flow.nozzle_diameter, (float)surface_fill.params.flow.height, surface_fill.params.flow.bridge);
+            float overlap = surface_fill.params.config->get_computed_value("filament_max_overlap", surface_fill.params.extruder - 1);
+            surface_fill.params.flow = Flow::new_from_spacing((float)f->get_spacing(), surface_fill.params.flow.nozzle_diameter, (float)surface_fill.params.flow.height, overlap, surface_fill.params.flow.bridge);
         }
 
-        //apply bridge_overlap if needed
-        if (surface_fill.params.flow.bridge && surface_fill.params.density > 0.99 && layerm->region()->config().bridge_overlap.get_abs_value(1) != 1) {
-            surface_fill.params.density *= float(layerm->region()->config().bridge_overlap.get_abs_value(1));
-        }
+        //union with safety offset to avoid separation from the appends of different surface with same settings.
+        surface_fill.expolygons = union_ex(surface_fill.expolygons, true);
 
         for (ExPolygon &expoly : surface_fill.expolygons) {
             //set overlap polygons
-            if (layerm->region()->config().perimeters > 0) {
-                f->overlap = layerm->region()->config().get_abs_value("infill_overlap", (perimeter_spacing + (f->get_spacing())) / 2);
+            f->no_overlap_expolygons.clear();
+            if (surface_fill.params.config->perimeters > 0) {
+                f->overlap = surface_fill.params.config->infill_overlap.get_abs_value((perimeter_spacing + (f->get_spacing())) / 2);
                 if (f->overlap != 0) {
                     f->no_overlap_expolygons = intersection_ex(layerm->fill_no_overlap_expolygons, ExPolygons() = { expoly });
                 } else {
@@ -465,11 +505,75 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
             }
 
             //init the surface with the current polygon
-            surface_fill.surface.expolygon = std::move(expoly);
-            //make fill
-            f->fill_surface_extrusion(&surface_fill.surface, surface_fill.params, m_regions[surface_fill.region_id]->fills.entities);
+            if (!expoly.contour.empty()) {
+                surface_fill.surface.expolygon = std::move(expoly);
+
+                //adjust the bridge density
+                if (surface_fill.params.flow.bridge && surface_fill.params.density > 0.99 /*&& layerm->region()->config().bridge_overlap.get_abs_value(1) != 1*/) {
+                    ////varies the overlap to have the best coverage for the bridge
+                    //surface_fill.params.density *= float(layerm->region()->config().bridge_overlap.get_abs_value(1));
+                    double min_spacing = 0.999 * surface_fill.params.spacing / surface_fill.params.config->bridge_overlap.get_abs_value(surface_fill.params.density);
+                    double max_spacing = 1.001 * surface_fill.params.spacing / surface_fill.params.config->bridge_overlap_min.get_abs_value(surface_fill.params.density);
+                    double factor = 1.00001;
+                    if (min_spacing < max_spacing * 1.01) {
+                        // create a bouding box of the rotated surface
+                        coord_t bounding_box_size_x = 0;
+                        coord_t bounding_box_min_x = 0;
+                        ExPolygons expolys;
+                        if (surface_fill.params.bridge_angle > 0 && !f->no_overlap_expolygons.empty()) {
+                            //take only the no-overlap area
+                            expolys = offset_ex(intersection_ex(ExPolygons{ ExPolygon{surface_fill.surface.expolygon.contour} }, f->no_overlap_expolygons), -scale_t(surface_fill.params.spacing) / 2 - 10);
+                        } else {
+                            expolys = offset_ex(ExPolygon{surface_fill.surface.expolygon.contour}, -scale_t(surface_fill.params.spacing) / 2 - 10);
+                        }
+                        BoundingBox bb;
+                        bool first = true;
+                        for (ExPolygon& expoly : expolys) {
+                            expoly.holes.clear();
+                            expoly.rotate(PI / 2 + (surface_fill.params.bridge_angle < 0 ? surface_fill.params.angle : surface_fill.params.bridge_angle));
+                            if (first) {
+                                bb = expoly.contour.bounding_box();
+                                first = false;
+                            } else {
+                                bb.merge(expoly.contour.points);
+                            }
+                        }
+                        bounding_box_size_x = bb.size().x();
+                        bounding_box_min_x = bb.min.x();
+
+                        //compute the dist
+                        double new_spacing = unscaled(f->_adjust_solid_spacing(bounding_box_size_x, scale_t(min_spacing), 2));
+                        if (new_spacing <= max_spacing) {
+                            surface_fill.params.density = factor * surface_fill.params.spacing / new_spacing;
+                        } else {
+                            double new_spacing2 = unscaled(f->_adjust_solid_spacing(bounding_box_size_x, scale_t(min_spacing * 1.999 - new_spacing), 2));
+                            if (new_spacing2 < min_spacing) {
+                                if (min_spacing - new_spacing2 < new_spacing - max_spacing) {
+                                    surface_fill.params.density = surface_fill.params.config->bridge_overlap.get_abs_value(surface_fill.params.density);
+                                } else {
+                                    surface_fill.params.density = surface_fill.params.config->bridge_overlap_min.get_abs_value(surface_fill.params.density);
+                                }
+                            } else {
+                                //use the highest density
+                                surface_fill.params.density = surface_fill.params.config->bridge_overlap.get_abs_value(surface_fill.params.density);
+                            }
+                        }
+                        Polygon poly = surface_fill.surface.expolygon.contour;
+                        poly.rotate(PI / 2 + (surface_fill.params.bridge_angle < 0 ? surface_fill.params.angle : surface_fill.params.bridge_angle));
+                        surface_fill.params.dont_adjust = true;
+                        surface_fill.params.bridge_offset = std::abs(poly.bounding_box().min.x() - bounding_box_min_x);
+                    }
+                }
+
+                //make fill
+                while ((size_t)surface_fill.params.priority >= fills_by_priority.size())
+                    fills_by_priority.push_back(new ExtrusionEntityCollection());
+                f->fill_surface_extrusion(&surface_fill.surface, surface_fill.params, fills_by_priority[(size_t)surface_fill.params.priority]->entities);
+            }
         }
     }
+    if(current_region_id != size_t(-1))
+        store_fill(current_region_id);
 
     // add thin fill regions
     // Unpacks the collection, creates multiple collections per path.
@@ -477,15 +581,35 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
     // Why the paths are unpacked?
     for (LayerRegion *layerm : m_regions)
         for (const ExtrusionEntity *thin_fill : layerm->thin_fills.entities) {
-            ExtrusionEntityCollection &collection = *(new ExtrusionEntityCollection());
-            layerm->fills.entities.push_back(&collection);
-            collection.entities.push_back(thin_fill->clone());
+            ExtrusionEntityCollection *collection = new ExtrusionEntityCollection();
+            if (!layerm->fills.can_sort() && layerm->fills.entities.size() > 0 && layerm->fills.entities[0]->is_collection()) {
+                ExtrusionEntityCollection* no_sort_fill = static_cast<ExtrusionEntityCollection*>(layerm->fills.entities[0]);
+                if (!no_sort_fill->can_sort() && no_sort_fill->entities.size() > 0 && no_sort_fill->entities[0]->is_collection())
+                    static_cast<ExtrusionEntityCollection*>(no_sort_fill->entities[0])->entities.push_back(collection);
+            } else
+                layerm->fills.entities.push_back(collection);
+            collection->entities.push_back(thin_fill->clone());
         }
 
 #ifndef NDEBUG
     for (LayerRegion *layerm : m_regions)
-        for (size_t i = 0; i < layerm->fills.entities.size(); ++ i)
-            assert(dynamic_cast<ExtrusionEntityCollection*>(layerm->fills.entities[i]) != nullptr);
+        for (size_t i1 = 0; i1 < layerm->fills.entities.size(); ++i1) {
+            assert(dynamic_cast<ExtrusionEntityCollection*>(layerm->fills.entities[i1]) != nullptr);
+            if (!layerm->fills.can_sort() && layerm->fills.entities.size() > 0 && i1 == 0){
+                ExtrusionEntityCollection* no_sort_fill = static_cast<ExtrusionEntityCollection*>(layerm->fills.entities[0]);
+                assert(no_sort_fill != nullptr);
+                assert(!no_sort_fill->empty());
+                for (size_t i2 = 0; i2 < no_sort_fill->entities.size(); ++i2) {
+                    ExtrusionEntityCollection* priority_fill = dynamic_cast<ExtrusionEntityCollection*>(no_sort_fill->entities[i2]);
+                    assert(priority_fill != nullptr);
+                    assert(!priority_fill->empty());
+                    if (!no_sort_fill->can_sort()) {
+                        for (size_t i3 = 0; i3 < priority_fill->entities.size(); ++i3)
+                            assert(dynamic_cast<ExtrusionEntityCollection*>(priority_fill->entities[i3]) != nullptr);
+                    }
+                }
+            }
+        }
 #endif
 }
 
@@ -643,7 +767,7 @@ void Layer::make_ironing()
         fill.angle = float(ironing_params.angle + 0.25 * M_PI);
         fill.link_max_length = (coord_t)scale_(3. * fill.get_spacing());
         double height = ironing_params.height * fill.get_spacing() / nozzle_dmr;
-        Flow flow = Flow::new_from_spacing(float(nozzle_dmr), 0., float(height), false);
+        Flow flow = Flow::new_from_spacing(float(nozzle_dmr), 0., float(height), 1.f, false);
         double flow_mm3_per_mm = flow.mm3_per_mm();
         Surface surface_fill((stPosTop | stDensSolid), ExPolygon());
         for (ExPolygon &expoly : ironing_areas) {
@@ -658,7 +782,7 @@ void Layer::make_ironing()
                 ExtrusionEntityCollection *eec = new ExtrusionEntityCollection();
                 ironing_params.layerm->ironings.entities.push_back(eec);
                 // Don't sort the ironing infill lines as they are monotonicly ordered.
-                eec->no_sort = true;
+                eec->set_can_sort_reverse(false, false);
                 extrusion_entities_append_paths(
                     eec->entities, std::move(polylines),
                     erIroning,

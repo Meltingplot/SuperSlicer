@@ -6,6 +6,7 @@
 
 #include <wx/dialog.h>
 #include <map>
+#include <vector>
 
 class wxRadioBox;
 
@@ -17,10 +18,11 @@ class ConfigOptionsGroup;
 class PreferencesDialog : public DPIDialog
 {
 	std::map<std::string, std::string>	m_values;
-	std::shared_ptr<ConfigOptionsGroup>	m_optgroup_general;
+	std::vector<std::string>			m_values_need_restart;
+	std::vector<std::shared_ptr<ConfigOptionsGroup>> m_optgroups_general;
 	std::shared_ptr<ConfigOptionsGroup>	m_optgroup_paths;
 	std::shared_ptr<ConfigOptionsGroup>	m_optgroup_camera;
-	std::shared_ptr<ConfigOptionsGroup>	m_optgroup_gui;
+	std::vector<std::shared_ptr<ConfigOptionsGroup>> m_optgroups_gui;
 #if ENABLE_ENVIRONMENT_MAP
 	std::shared_ptr<ConfigOptionsGroup>	m_optgroup_render;
 #endif // ENABLE_ENVIRONMENT_MAP
@@ -45,8 +47,10 @@ public:
 protected:
     void on_dpi_changed(const wxRect &suggested_rect) override;
     void layout();
-    void create_icon_size_slider();
-    void create_settings_mode_widget();
+    void create_icon_size_slider(ConfigOptionsGroup* parent);
+    void create_settings_mode_widget(wxNotebook* tabs);
+	std::shared_ptr<ConfigOptionsGroup> create_general_options_group(const wxString& title, wxNotebook* tabs);
+	std::shared_ptr<ConfigOptionsGroup> create_gui_options_group(const wxString& title, wxNotebook* tabs);
 };
 
 } // GUI

@@ -292,14 +292,14 @@ void FreqChangedParams::msw_rescale()
 FreqChangedParams::FreqChangedParams(wxWindow* parent) :
     OG_Settings(parent, false)
 {
-    DynamicPrintConfig*	config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    DynamicPrintConfig*	config = &wxGetApp().preset_bundle->fff_prints.get_edited_preset().config;
 
     // Frequently changed parameters for FFF_technology
     m_og->set_config(config);
     m_og->hide_labels();
 
     m_og->m_on_change = [config, this](t_config_option_key opt_key, boost::any value) {
-        Tab* tab_print = wxGetApp().get_tab(Preset::TYPE_PRINT);
+        Tab* tab_print = wxGetApp().get_tab(Preset::TYPE_FFF_PRINT);
         if (!tab_print) return;
 
         if (opt_key == "fill_density") {
@@ -692,8 +692,8 @@ Sidebar::Sidebar(Plater *parent)
     };
 
     p->combos_filament.push_back(nullptr);
-    init_combo(&p->combo_print,         _L("Print settings"),     Preset::TYPE_PRINT,         false);
-    init_combo(&p->combos_filament[0],  _L("Filament"),           Preset::TYPE_FILAMENT,      true);
+    init_combo(&p->combo_print,         _L("Print settings"),     Preset::TYPE_FFF_PRINT,         false);
+    init_combo(&p->combos_filament[0],  _L("Filament"),           Preset::TYPE_FFF_FILAMENT,      true);
     init_combo(&p->combo_sla_print,     _L("SLA print settings"), Preset::TYPE_SLA_PRINT,     false);
     init_combo(&p->combo_sla_material,  _L("SLA material"),       Preset::TYPE_SLA_MATERIAL,  false);
     init_combo(&p->combo_printer,       _L("Printer"),            Preset::TYPE_PRINTER,       false);
@@ -809,7 +809,7 @@ Sidebar::Sidebar(Plater *parent)
 Sidebar::~Sidebar() {}
 
 void Sidebar::init_filament_combo(PlaterPresetComboBox **combo, const int extr_idx) {
-    *combo = new PlaterPresetComboBox(p->presets_panel, Slic3r::Preset::TYPE_FILAMENT);
+    *combo = new PlaterPresetComboBox(p->presets_panel, Slic3r::Preset::TYPE_FFF_FILAMENT);
 //         # copy icons from first choice
 //         $choice->SetItemBitmap($_, $choices->[0]->GetItemBitmap($_)) for 0..$#presets;
 
@@ -865,7 +865,7 @@ void Sidebar::update_presets(Preset::Type preset_type)
     const auto print_tech = preset_bundle.printers.get_edited_preset().printer_technology();
 
     switch (preset_type) {
-    case Preset::TYPE_FILAMENT: 
+    case Preset::TYPE_FFF_FILAMENT: 
     {
         const size_t extruder_cnt = print_tech != ptFFF ? 1 :
                                 dynamic_cast<ConfigOptionFloats*>(preset_bundle.printers.get_edited_preset().config.option("nozzle_diameter"))->values.size();
@@ -883,7 +883,7 @@ void Sidebar::update_presets(Preset::Type preset_type)
         break;
     }
 
-    case Preset::TYPE_PRINT:
+    case Preset::TYPE_FFF_PRINT:
         p->combo_print->update();
         break;
 
@@ -1158,15 +1158,33 @@ void Sidebar::update_sliced_info_sizer()
                                                 (ps.total_used_filament - ps.total_wipe_tower_filament) / /*1000*/koef,
                                                 ps.total_wipe_tower_filament / /*1000*/koef) :
                                 wxString::Format("%.2f", ps.total_used_filament / /*1000*/koef);
-            if (ps.color_extruderid_to_used_filament.size() > 0) {
-                double total_length = 0;
-                for (int i = 0; i < ps.color_extruderid_to_used_filament.size(); i++) {
-                    new_label+= from_u8((boost::format("\n    - %1% %2%") % _utf8(L("Color")) % (i+1) ).str());
-                    total_length += ps.color_extruderid_to_used_filament[i].second;
-                    info_text += wxString::Format("\n%.2f (%.2f)", ps.color_extruderid_to_used_filament[i].second / 1000, total_length / 1000);
+            //if multiple filament/extruderss, then print them all
+            if (ps.filament_stats.size() > 1 || ps.color_extruderid_to_used_filament.size() > 0) {
+                new_label += ":";
+                //for each extruder
+                for (auto filament : ps.filament_stats) {
+                    int items_printed = 0;
+                    double total_length = 0;
+                    // print each color change for this extruder
+                    for (auto entry : ps.color_extruderid_to_used_filament) {
+                        if (filament.first == entry.first) {
+                            items_printed++;
+                            new_label += "\n    - " + format_wxstr(_L("Color %1% at extruder %2%"), items_printed , (filament.first + 1));
+                            total_length += entry.second;
+                            info_text += wxString::Format("\n%.2f (%.2f)", entry.second / 1000, total_length / 1000);
+                        }
+                    }
+                    //print total for this extruder
+                    if (items_printed == 0) {
+                        new_label += "\n    - " + format_wxstr(_L("Filament at extruder %1%"), filament.first + 1);
+                        //new_label += from_u8((boost::format("\n    - %1% %2%") % _utf8(L("Color")) % ps.color_extruderid_to_used_filament.size()).str());
+                        info_text += wxString::Format("\n%.2f", filament.second / 1000);
+                    } 
+                    else {
+                        new_label += "\n    - " + format_wxstr(_L("Color %1% at extruder %2%"), (items_printed+1), (filament.first + 1));
+                        info_text += wxString::Format("\n%.2f (%.2f)", (filament.second - total_length) / 1000, filament.second / 1000);
+                    }
                 }
-                new_label += from_u8((boost::format("\n    - %1% %2%") % _utf8(L("Color")) % ps.color_extruderid_to_used_filament.size()).str());
-                info_text += wxString::Format("\n%.2f (%.2f)", (ps.total_used_filament - total_length) / 1000, ps.total_used_filament / 1000);
             }
             p->sliced_info->SetTextAndShow(siFilament_m, info_text, new_label);
 
@@ -1175,61 +1193,80 @@ void Sidebar::update_sliced_info_sizer()
             info_text = wxString::Format("%.2f", imperial_units ? ps.total_extruded_volume * koef : ps.total_extruded_volume);
             p->sliced_info->SetTextAndShow(siFilament_mm3,  info_text,      new_label);
 
-            if (ps.color_extruderid_to_used_weight.size() > 0  && ps.total_weight != 0) {
-                new_label = _L("Used Filament (g)");
-                info_text = wxString::Format("%.2f", ps.total_weight);
-                double total_weight = 0;
-                for (int i = 0; i < ps.color_extruderid_to_used_weight.size(); i++) {
-                    new_label += from_u8((boost::format("\n    - %1% %2%") % _utf8(L("Color")) % (i + 1)).str());
-                    total_weight += ps.color_extruderid_to_used_weight[i].second;
-                    info_text += (ps.color_extruderid_to_used_weight[i].second == 0 ? "\nN/A": wxString::Format("\n%.2f", ps.color_extruderid_to_used_weight[i].second / 1000))
-                        + (total_weight == 0 ? " (N/A)" : wxString::Format(" (%.2f)", total_weight / 1000));
-                }
-                new_label += from_u8((boost::format("\n    - %1% %2%") % _utf8(L("Color")) % ps.color_extruderid_to_used_weight.size()).str());
-                info_text += ((ps.total_weight - total_weight / 1000) == 0 ? "\nN/A" : wxString::Format("\n%.2f", (ps.total_weight - total_weight / 1000)))
-                    + wxString::Format(" (%.2f)", ps.total_weight);
-                p->sliced_info->SetTextAndShow(siFilament_g, info_text, new_label);
-            }else
-                p->sliced_info->SetTextAndShow(siFilament_g,    ps.total_weight == 0.0 ? "N/A" : wxString::Format("%.2f", ps.total_weight), _(L("Used Filament (g)")));
-/* prusa version
-
-if (ps.total_weight == 0.0)
+            if (ps.total_weight == 0.0)
                 p->sliced_info->SetTextAndShow(siFilament_g, "N/A");
-            else {
+            else{
                 new_label = _L("Used Filament (g)");
                 info_text = wxString::Format("%.2f", ps.total_weight);
 
                 const std::vector<std::string>& filament_presets = wxGetApp().preset_bundle->filament_presets;
                 const PresetCollection& filaments = wxGetApp().preset_bundle->filaments;
 
-                if (ps.filament_stats.size() > 1)
+
+                if (ps.filament_stats.size() > 1 || ps.color_extruderid_to_used_weight.size() > 0) {
+                    bool has_spool = false;
                     new_label += ":";
-
-                for (auto filament : ps.filament_stats) {
-                    const Preset* filament_preset = filaments.find_preset(filament_presets[filament.first], false);
-                    if (filament_preset) {
-                        double filament_weight;
-                        if (ps.filament_stats.size() == 1)
-                            filament_weight = ps.total_weight;
-                        else {
-                            double filament_density = filament_preset->config.opt_float("filament_density", 0);
-                            filament_weight = filament.second * filament_density * 2.4052f * 0.001; // assumes 1.75mm filament diameter;
-
-                            new_label += "\n    - " + format_wxstr(_L("Filament at extruder %1%"), filament.first + 1);
-                            info_text += wxString::Format("\n%.2f", filament_weight);
+                    //for each extruder
+                    for (auto filament : ps.filament_stats) {
+                        const Preset* filament_preset = filaments.find_preset(filament_presets[filament.first], false);
+                        if (filament_preset) {
+                            double spool_weight = filament_preset->config.opt_float("filament_spool_weight", 0);
+                            double filament_density = filament_preset->config.opt_float("filament_density", filament.first);
+                            double crosssection = filament_preset->config.opt_float("filament_diameter", filament.first);
+                            crosssection *= crosssection;
+                            crosssection *= 0.25 * PI;
+                            double m_to_g = filament_density / (crosssection * 1000);
+                            int items_printed = 0;
+                            double total_length = 0;
+                            //for (int i = 0; i < ps.color_extruderid_to_used_filament.size(); i++) {
+                            //    new_label += from_u8((boost::format("\n    - %1% %2%") % _utf8(L("Color")) % (i + 1)).str());
+                            //    total_weight += ps.color_extruderid_to_used_weight[i].second;
+                            //    info_text += (ps.color_extruderid_to_used_weight[i].second == 0 ? "\nN/A" : wxString::Format("\n%.2f", ps.color_extruderid_to_used_weight[i].second / 1000))
+                            //        + (total_weight == 0 ? " (N/A)" : wxString::Format(" (%.2f)", total_weight / 1000));
+                            //}
+                            if (spool_weight != 0.0)
+                                has_spool = true;
+                            for (auto entry : ps.color_extruderid_to_used_filament) {
+                                if (filament.first == entry.first) {
+                                    items_printed++;
+                                    new_label += "\n    - " + format_wxstr(_L("Color %1% at extruder %2%"), items_printed, (filament.first + 1));
+                                    total_length += entry.second;
+                                    info_text += wxString::Format("\n%.2f", entry.second * m_to_g);
+                                    if (spool_weight != 0.0)
+                                        info_text += wxString::Format(" (%.2f)", entry.second * m_to_g + spool_weight);
+                                }
+                            }
+                            //print total for this extruder
+                            if (items_printed == 0) {
+                                new_label += "\n    - " + format_wxstr(_L("Filament at extruder %1%"), filament.first + 1);
+                                //new_label += from_u8((boost::format("\n    - %1% %2%") % _utf8(L("Color")) % ps.color_extruderid_to_used_filament.size()).str());
+                                info_text += wxString::Format("\n%.2f", filament.second * m_to_g);
+                                if (spool_weight != 0.0)
+                                    info_text += wxString::Format(" (%.2f)", filament.second * m_to_g + spool_weight);
+                            } else {
+                                new_label += "\n    - " + format_wxstr(_L("Color %1% at extruder %2%"), (items_printed + 1), (filament.first + 1));
+                                info_text += wxString::Format("\n%.2f", (filament.second - total_length) * m_to_g);
+                                if (spool_weight != 0.0)
+                                    info_text += wxString::Format(" (%.2f)", (filament.second - total_length) * m_to_g + spool_weight);
+                            }
                         }
-
+                    }
+                    if (has_spool)
+                        new_label += "\n      " + _L("(including spool)");
+                } else {
+                    //add spool to main line if there is only one filament
+                    const Preset* filament_preset = filaments.find_preset(filament_presets.front(), false);
+                    if (filament_preset) {
                         double spool_weight = filament_preset->config.opt_float("filament_spool_weight", 0);
                         if (spool_weight != 0.0) {
                             new_label += "\n      " + _L("(including spool)");
-                            info_text += wxString::Format(" (%.2f)\n", filament_weight + spool_weight);
+                            info_text += wxString::Format(" (%.2f)\n", ps.total_weight + spool_weight);
                         }
                     }
                 }
-
                 p->sliced_info->SetTextAndShow(siFilament_g, info_text, new_label);
             }
-*/
+
             new_label = _L("Cost");
             if (is_wipe_tower)
                 new_label += format_wxstr(":\n    - %1%\n    - %2%", _L("objects"), _L("wipe tower"));
@@ -1978,12 +2015,13 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
         "complete_objects",
         "complete_objects_sort",
         "complete_objects_one_skirt",
+		"complete_objects_one_brim",
         "duplicate_distance", "extruder_clearance_radius", 
         "skirt_extrusion_width",
         "first_layer_extrusion_width",
         "perimeter_extrusion_width",
         "extrusion_width",
-        "skirts", "skirt_distance", "skirt_height", "draft_shield",
+        "skirts", "skirt_brim", "skirt_distance", "skirt_distance_from_brim", "skirt_height", "draft_shield",
         "brim_width", "variable_layer_height", "nozzle_diameter", "single_extruder_multi_material",
         "wipe_tower", "wipe_tower_x", "wipe_tower_y", "wipe_tower_width", "wipe_tower_rotation_angle",
         "wipe_tower_brim",
@@ -2398,7 +2436,8 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                 DynamicPrintConfig config;
                 {
                     DynamicPrintConfig config_loaded;
-                    model = Slic3r::Model::read_from_archive(path.string(), &config_loaded, false, load_config);
+                    ConfigSubstitutionContext config_substitutions{ ForwardCompatibilitySubstitutionRule::Enable };
+                    model = Slic3r::Model::read_from_archive(path.string(), &config_loaded, &config_substitutions, only_if(load_config, Model::LoadAttribute::CheckVersion));
                     if (load_config && !config_loaded.empty()) {
                         // Based on the printer technology field found in the loaded config, select the base for the config,
 					    PrinterTechnology printer_technology = Preset::printer_technology(config_loaded);
@@ -2424,6 +2463,8 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         // and place the loaded config over the base.
                         config += std::move(config_loaded);
                     }
+                    if (! config_substitutions.empty())
+                        show_substitutions_info(config_substitutions.substitutions, filename.string());
 
                     this->model.custom_gcode_per_print_z = model.custom_gcode_per_print_z;
                 }
@@ -2444,11 +2485,15 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                 }
             }
             else {
-                model = Slic3r::Model::read_from_file(path.string(), nullptr, false, load_config);
+                model = Slic3r::Model::read_from_file(path.string(), nullptr, nullptr, only_if(load_config, Model::LoadAttribute::CheckVersion));
                 for (auto obj : model.objects)
                     if (obj->name.empty())
                         obj->name = fs::path(obj->input_file).filename().string();
             }
+        } catch (const ConfigurationError &e) {
+            std::string message = GUI::format(_L("Failed loading file \"%1%\" due to an invalid configuration."), filename.string()) + "\n\n" + e.what();
+            GUI::show_error(q, message);
+            continue;
         } catch (const std::exception &e) {
             GUI::show_error(q, e.what());
             continue;
@@ -2742,7 +2787,7 @@ wxString Plater::priv::get_export_file(GUI::FileType file_type)
 
     wxFileDialog dlg(q, dlg_title,
         from_path(output_file.parent_path()), from_path(output_file.filename()),
-        wildcard, wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+        wildcard, wxFD_SAVE |(wxGetApp().app_config->get_show_overwrite_dialog() ? wxFD_OVERWRITE_PROMPT : 0) );
 
     if (dlg.ShowModal() != wxID_OK)
         return wxEmptyString;
@@ -3324,7 +3369,7 @@ void Plater::priv::reload_from_disk()
         Model new_model;
         try
         {
-            new_model = Model::read_from_file(path, nullptr, true, false);
+            new_model = Model::read_from_file(path, nullptr, nullptr, Model::LoadAttribute::AddDefaultInstances);
             for (ModelObject* model_object : new_model.objects)
             {
                 model_object->center_around_origin();
@@ -3568,8 +3613,14 @@ void Plater::priv::set_current_panel(wxTitledPanel* panel)
         // FIXME: it may be better to have a single function making this check and let it be called wherever needed
         bool export_in_progress = this->background_process.is_export_scheduled();
         bool model_fits = view3D->check_volumes_outside_state() != ModelInstancePVS_Partly_Outside;
-        if (!model.objects.empty() && !export_in_progress && model_fits)
-            this->q->reslice();
+
+        if (!model.objects.empty() && !export_in_progress && model_fits) {
+            //check if already slicing
+            bool already_running = this->background_process.state() == BackgroundSlicingProcess::State::STATE_RUNNING ||
+                this->background_process.state() == BackgroundSlicingProcess::State::STATE_STARTED;
+            if(!already_running)
+                this->q->reslice();
+        }
         // keeps current gcode preview, if any
         preview->reload_print(true);
     }
@@ -3610,13 +3661,13 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
     std::string preset_name = wxGetApp().preset_bundle->get_preset_name_by_alias(preset_type, 
         Preset::remove_suffix_modified(combo->GetString(selection).ToUTF8().data()));
 
-    if (preset_type == Preset::TYPE_FILAMENT) {
+    if (preset_type == Preset::TYPE_FFF_FILAMENT) {
         wxGetApp().preset_bundle->set_filament_preset(idx, preset_name);
     }
 
     bool select_preset = !combo->selection_is_changed_according_to_physical_printers();
     // TODO: ?
-    if (preset_type == Preset::TYPE_FILAMENT && sidebar->is_multifilament()) {
+    if (preset_type == Preset::TYPE_FFF_FILAMENT && sidebar->is_multifilament()) {
         // Only update the plater UI for the 2nd and other filaments.
         combo->update();
     }
@@ -3654,6 +3705,12 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
 
 void Plater::priv::on_slicing_update(SlicingStatusEvent &evt)
 {
+    //update dirty flags
+    if (0 != (evt.status.flags & Slic3r::PrintBase::SlicingStatus::FlagBits::SLICING_ENDED))
+        preview->get_canvas3d()->set_preview_dirty();
+    if (0 != (evt.status.flags & Slic3r::PrintBase::SlicingStatus::FlagBits::GCODE_ENDED))
+        preview->get_canvas3d()->set_gcode_viewer_dirty();
+
     if (evt.status.percent >= -1) {
         if (m_ui_jobs.is_any_running()) {
             // Avoid a race condition
@@ -3661,7 +3718,24 @@ void Plater::priv::on_slicing_update(SlicingStatusEvent &evt)
         }
 
         this->statusbar()->set_progress(evt.status.percent);
-        this->statusbar()->set_status_text(_(evt.status.text) + wxString::FromUTF8("…"));
+        if (evt.status.args.empty()) {
+            this->statusbar()->set_status_text(_(evt.status.main_text) + wxString::FromUTF8("…"));
+        } else {
+            std::vector<wxString> arg_lst;
+            for (std::string str : evt.status.args)
+                arg_lst.push_back(_(str));
+            //FIXME use var-args list 
+            if (arg_lst.size() == 1)
+                this->statusbar()->set_status_text(wxString::Format(_(evt.status.main_text), arg_lst[0]));
+            else if (arg_lst.size() == 2)
+                this->statusbar()->set_status_text(wxString::Format(_(evt.status.main_text), arg_lst[0], arg_lst[1]));
+            else if (arg_lst.size() == 3)
+                this->statusbar()->set_status_text(wxString::Format(_(evt.status.main_text), arg_lst[0], arg_lst[1], arg_lst[2]));
+            else if (arg_lst.size() == 4)
+                this->statusbar()->set_status_text(wxString::Format(_(evt.status.main_text), arg_lst[0], arg_lst[1], arg_lst[2], arg_lst[3]));
+            else
+                this->statusbar()->set_status_text(wxString::Format(_(evt.status.main_text), arg_lst[0], arg_lst[1], arg_lst[2], arg_lst[3], arg_lst[4]));
+        }
         //notification_manager->set_progress_bar_percentage("Slicing progress", (float)evt.status.percent / 100.0f);
     }
     if (evt.status.flags & (PrintBase::SlicingStatus::RELOAD_SCENE | PrintBase::SlicingStatus::RELOAD_SLA_SUPPORT_POINTS)) {
@@ -3745,6 +3819,8 @@ void Plater::priv::on_slicing_began()
 {
 	clear_warnings();
 	notification_manager->close_notification_of_type(NotificationType::SlicingComplete);
+    preview->get_canvas3d()->set_gcode_viewer_dirty();
+    preview->get_canvas3d()->set_preview_dirty();
 }
 void Plater::priv::add_warning(const Slic3r::PrintStateBase::Warning& warning, size_t oid)
 {
@@ -4006,7 +4082,7 @@ void Plater::priv::on_wipetower_moved(Vec3dEvent &evt)
     DynamicPrintConfig cfg;
     cfg.opt<ConfigOptionFloat>("wipe_tower_x", true)->value = evt.data(0);
     cfg.opt<ConfigOptionFloat>("wipe_tower_y", true)->value = evt.data(1);
-    wxGetApp().get_tab(Preset::TYPE_PRINT)->load_config(cfg);
+    wxGetApp().get_tab(Preset::TYPE_FFF_PRINT)->load_config(cfg);
 }
 
 void Plater::priv::on_wipetower_rotated(Vec3dEvent& evt)
@@ -4015,7 +4091,7 @@ void Plater::priv::on_wipetower_rotated(Vec3dEvent& evt)
     cfg.opt<ConfigOptionFloat>("wipe_tower_x", true)->value = evt.data(0);
     cfg.opt<ConfigOptionFloat>("wipe_tower_y", true)->value = evt.data(1);
     cfg.opt<ConfigOptionFloat>("wipe_tower_rotation_angle", true)->value = Geometry::rad2deg(evt.data(2));
-    wxGetApp().get_tab(Preset::TYPE_PRINT)->load_config(cfg);
+    wxGetApp().get_tab(Preset::TYPE_FFF_PRINT)->load_config(cfg);
 }
 
 void Plater::priv::on_update_geometry(Vec3dsEvent<2>&)
@@ -4382,7 +4458,7 @@ void Plater::priv::enable_preview_moves_slider(bool enable)
 
 void Plater::priv::reset_gcode_toolpaths()
 {
-    preview->get_canvas3d()->reset_gcode_toolpaths();
+    preview->reset_gcode_toolpaths();
 }
 
 bool Plater::priv::can_set_instance_to_object() const
@@ -4626,7 +4702,7 @@ void Plater::priv::take_snapshot(const std::string& snapshot_name)
     //FIXME updating the Wipe tower config values at the ModelWipeTower from the Print config.
     // This is a workaround until we refactor the Wipe Tower position / orientation to live solely inside the Model, not in the Print config.
     if (this->printer_technology == ptFFF) {
-        const DynamicPrintConfig &config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+        const DynamicPrintConfig &config = wxGetApp().preset_bundle->fff_prints.get_edited_preset().config;
         model.wipe_tower.position = Vec2d(config.opt_float("wipe_tower_x"), config.opt_float("wipe_tower_y"));
         model.wipe_tower.rotation = config.opt_float("wipe_tower_rotation_angle");
     }
@@ -4682,7 +4758,7 @@ void Plater::priv::undo_redo_to(std::vector<UndoRedo::Snapshot>::const_iterator 
     //FIXME updating the Wipe tower config values at the ModelWipeTower from the Print config.
     // This is a workaround until we refactor the Wipe Tower position / orientation to live solely inside the Model, not in the Print config.
     if (this->printer_technology == ptFFF) {
-        const DynamicPrintConfig &config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+        const DynamicPrintConfig &config = wxGetApp().preset_bundle->fff_prints.get_edited_preset().config;
                 model.wipe_tower.position = Vec2d(config.opt_float("wipe_tower_x"), config.opt_float("wipe_tower_y"));
                 model.wipe_tower.rotation = config.opt_float("wipe_tower_rotation_angle");
     }
@@ -4725,7 +4801,9 @@ void Plater::priv::undo_redo_to(std::vector<UndoRedo::Snapshot>::const_iterator 
             // Switch to the other printer technology. Switch to the last printer active for that particular technology.
             AppConfig *app_config = wxGetApp().app_config;
             app_config->set("presets", "printer", (new_printer_technology == ptFFF) ? m_last_fff_printer_profile_name : m_last_sla_printer_profile_name);
-            wxGetApp().preset_bundle->load_presets(*app_config);
+            //FIXME Why are we reloading the whole preset bundle here? Please document. This is fishy and it is unnecessarily expensive.
+            // Anyways, don't report any config value substitutions, they have been already reported to the user at application start up.
+            wxGetApp().preset_bundle->load_presets(*app_config, ForwardCompatibilitySubstitutionRule::EnableSilent);
 			// load_current_presets() calls Tab::load_current_preset() -> TabPrint::update() -> Object_list::update_and_show_object_settings_item(),
 			// but the Object list still keeps pointer to the old Model. Avoid a crash by removing selection first.
 			this->sidebar->obj_list()->unselect_objects();
@@ -4736,7 +4814,7 @@ void Plater::priv::undo_redo_to(std::vector<UndoRedo::Snapshot>::const_iterator 
         //FIXME updating the Print config from the Wipe tower config values at the ModelWipeTower.
         // This is a workaround until we refactor the Wipe Tower position / orientation to live solely inside the Model, not in the Print config.
         if (this->printer_technology == ptFFF) {
-            const DynamicPrintConfig &current_config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+            const DynamicPrintConfig &current_config = wxGetApp().preset_bundle->fff_prints.get_edited_preset().config;
             Vec2d 					  current_position(current_config.opt_float("wipe_tower_x"), current_config.opt_float("wipe_tower_y"));
             double 					  current_rotation = current_config.opt_float("wipe_tower_rotation_angle");
             if (current_position != model.wipe_tower.position || current_rotation != model.wipe_tower.rotation) {
@@ -4744,7 +4822,7 @@ void Plater::priv::undo_redo_to(std::vector<UndoRedo::Snapshot>::const_iterator 
                 new_config.set_key_value("wipe_tower_x", new ConfigOptionFloat(model.wipe_tower.position.x()));
                 new_config.set_key_value("wipe_tower_y", new ConfigOptionFloat(model.wipe_tower.position.y()));
                 new_config.set_key_value("wipe_tower_rotation_angle", new ConfigOptionFloat(model.wipe_tower.rotation));
-                Tab *tab_print = wxGetApp().get_tab(Preset::TYPE_PRINT);
+                Tab *tab_print = wxGetApp().get_tab(Preset::TYPE_FFF_PRINT);
                 tab_print->load_config(new_config);
                 tab_print->update_dirty();
             }
@@ -4862,7 +4940,7 @@ const PrintBase* Plater::current_print() const {
 bool Plater::check_project_unsaved_changes() {
     if (wxGetApp().app_config->get("default_action_on_new_project") == "1" && p->has_project_change(wxGetApp().preset_bundle->full_config_secure(), p->model))
     {
-        wxMessageDialog diag = wxMessageDialog(static_cast<wxWindow*>(this), _L("You have unsaved Changed, do you want to save your project or to remove all settings and objects?"), wxString(SLIC3R_APP_NAME), wxYES_NO | wxCANCEL | wxYES_DEFAULT | wxCENTRE);
+        wxMessageDialog diag = wxMessageDialog(static_cast<wxWindow*>(this), _L("You have unsaved changes, do you want to save your project or to remove all settings and objects?"), wxString(SLIC3R_APP_NAME), wxYES_NO | wxCANCEL | wxYES_DEFAULT | wxCENTRE);
         diag.SetYesNoLabels(_L("Discard"), _L("Save"));
         //diag.SetOKLabel(_L("Always discard"));
         int result = diag.ShowModal();
@@ -5025,6 +5103,8 @@ void Plater::load_gcode(const wxString& filename)
     p->gcode_result = std::move(processor.extract_result());
 
     // show results
+    p->preview->get_canvas3d()->set_preview_dirty();
+    p->preview->get_canvas3d()->set_gcode_viewer_dirty();
     p->preview->reload_print(false);
     p->preview->get_canvas3d()->zoom_to_gcode();
 
@@ -5496,13 +5576,14 @@ void Plater::export_gcode(bool prefer_removable)
 
     fs::path output_path;
     {
-        wxFileDialog dlg(this, (printer_technology() == ptFFF) ? _L("Save G-code file as:") : _L("Save SL1 file as:"),
+        std::string ext = default_output_file.extension().string();
+        wxFileDialog dlg(this, (printer_technology() == ptFFF) ? _L("Save G-code file as:") : _L("Save SL1 / SL1S file as:"),
             start_dir,
             from_path(default_output_file.filename()),
-            GUI::file_wildcards((printer_technology() == ptFFF) ? FT_GCODE : FT_PNGZIP, default_output_file.extension().string()),
-            wxFD_SAVE | wxFD_OVERWRITE_PROMPT
+            GUI::file_wildcards((printer_technology() == ptFFF) ? FT_GCODE : boost::iequals(ext, ".sl1s") ? FT_SL1S : FT_SL1, ext),
+            wxFD_SAVE | (wxGetApp().app_config->get_show_overwrite_dialog() ? wxFD_OVERWRITE_PROMPT : 0)
         );
-        if (dlg.ShowModal() == wxID_OK)
+            if (dlg.ShowModal() == wxID_OK)
             output_path = into_path(dlg.GetPath());
     }
 
@@ -6040,6 +6121,17 @@ void Plater::on_config_change(const DynamicPrintConfig &config)
         }
         else if(opt_key == "extruder_colour") {
             update_scheduled = true;
+            if (p->config->option<ConfigOptionStrings>("filament_colour")->values.size() < config.option<ConfigOptionStrings>(opt_key)->values.size()) {
+                const std::vector<std::string> filament_presets = wxGetApp().preset_bundle->filament_presets;
+                const PresetCollection& filaments = wxGetApp().preset_bundle->filaments;
+                std::vector<std::string> filament_colors;
+                filament_colors.reserve(filament_presets.size());
+
+                for (const std::string& filament_preset : filament_presets)
+                    filament_colors.push_back(filaments.find_preset(filament_preset, true)->config.opt_string("filament_colour", (unsigned)0));
+
+                p->config->option<ConfigOptionStrings>("filament_colour")->values = filament_colors;
+            }
 #if !ENABLE_PREVIEW_TYPE_CHANGE
             p->preview->set_number_extruders(p->config->option<ConfigOptionStrings>(opt_key)->values.size());
 #endif // !ENABLE_PREVIEW_TYPE_CHANGE

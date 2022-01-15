@@ -3,6 +3,7 @@
 #include "libslic3r/MTUtils.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/Print.hpp"
+#include "libslic3r/ClipperUtils.hpp"
 
 #include "slic3r/GUI/Plater.hpp"
 #include "slic3r/GUI/GLCanvas3D.hpp"
@@ -69,17 +70,36 @@ void ArrangeJob::clear_input()
     m_unprintable.reserve(cunprint /* for optional wti */);
 }
 
+void add_brim(arrangement::ArrangePolygon &ap, const ModelConfigObject &config, const Plater* plater)
+{
+    if (!plater->config()->option("complete_objects_one_brim")->getBool()) {
+        // object-brim increase the size of the object
+        // Should be using the "inflation" field but it's non-functional right now.
+        coord_t diff = scale_(plater->config()->option("brim_width")->getFloat() - plater->config()->option("extruder_clearance_radius")->getFloat() / 2);
+        if (config.option("brim_width"))
+            diff = scale_(config.option("brim_width")->getFloat() - plater->config()->option("extruder_clearance_radius")->getFloat() / 2);
+        if (diff > 0) {
+            ExPolygons brimmed = offset_ex(ap.poly, diff);
+            assert(brimmed.size() == 1);
+            ap.poly = brimmed[0];
+        }
+    }
+}
+
 void ArrangeJob::prepare_all() {
     clear_input();
     
     for (ModelObject *obj: m_plater->model().objects)
         for (ModelInstance *mi : obj->instances) {
             ArrangePolygons & cont = mi->printable ? m_selected : m_unprintable;
-            cont.emplace_back(get_arrange_poly(PtrWrapper{mi}, m_plater));
+            arrangement::ArrangePolygon &&ap = get_arrange_poly(PtrWrapper{ mi }, m_plater);
+            add_brim(ap, obj->config, m_plater);
+            cont.emplace_back(std::move(ap));
         }
 
-    if (auto wti = get_wipe_tower_arrangepoly(*m_plater))
+    if (auto wti = get_wipe_tower_arrangepoly(*m_plater)) {
         m_selected.emplace_back(std::move(*wti));
+    }
 }
 
 void ArrangeJob::prepare_selected() {
@@ -114,7 +134,8 @@ void ArrangeJob::prepare_selected() {
                         (inst_sel[i] ? m_selected :
                                        m_unselected) :
                         m_unprintable;
-            
+
+            add_brim(ap, model.objects[oidx]->config, m_plater);
             cont.emplace_back(std::move(ap));
         }
     }
@@ -124,6 +145,7 @@ void ArrangeJob::prepare_selected() {
 
         auto &cont = m_plater->get_selection().is_wipe_tower() ? m_selected :
                                                                  m_unselected;
+
         cont.emplace_back(std::move(ap));
     }
     
@@ -176,6 +198,11 @@ void ArrangeJob::process()
         GUI::show_error(m_plater,
                         _(L("Could not arrange model objects! "
                             "Some geometries may be invalid.")));
+    }
+
+    //update last arrange value
+    if (!was_canceled()) {
+        m_plater->canvas3D()->set_last_arrange_settings(settings.distance);
     }
 
     // finalize just here.

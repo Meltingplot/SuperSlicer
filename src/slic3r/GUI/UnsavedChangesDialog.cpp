@@ -40,9 +40,9 @@ namespace GUI {
 // ----------------------------------------------------------------------------
 
 static const std::map<Preset::Type, std::string> type_icon_names = {
-    {Preset::TYPE_PRINT,        "cog"           },
+    {Preset::TYPE_FFF_PRINT,        "cog"           },
     {Preset::TYPE_SLA_PRINT,    "cog"           },
-    {Preset::TYPE_FILAMENT,     "spool"         },
+    {Preset::TYPE_FFF_FILAMENT,     "spool"         },
     {Preset::TYPE_SLA_MATERIAL, "resin"         },
     {Preset::TYPE_PRINTER,      "printer"       },
 };
@@ -646,9 +646,13 @@ void UnsavedChangesDialog::build(Preset::Type type, PresetCollection* dependent_
     };
 
     const PresetCollection& printers = wxGetApp().preset_bundle->printers;
-    if (dependent_presets && (type == dependent_presets->type() ?
-        dependent_presets->get_edited_preset().printer_technology() == dependent_presets->find_preset(new_selected_preset)->printer_technology() :
-        printers.get_edited_preset().printer_technology() == printers.find_preset(new_selected_preset)->printer_technology()))
+    // get the preset we switch to (if it exists)
+    const Preset* new_preset = nullptr;
+    if (dependent_presets)
+        new_preset = (type == dependent_presets->type() ? dependent_presets->find_preset(new_selected_preset) : printers.find_preset(new_selected_preset));
+    if (new_preset && dependent_presets && (type == dependent_presets->type() ?
+        dependent_presets->get_edited_preset().printer_technology() == new_preset->printer_technology() :
+        printers.get_edited_preset().printer_technology() == new_preset->printer_technology()))
         add_btn(&m_transfer_btn, m_move_btn_id, "paste_menu", Action::Transfer, _L("Transfer"));
     add_btn(&m_discard_btn, m_continue_btn_id, dependent_presets ? "switch_presets" : "exit", Action::Discard, _L("Discard"), false);
     add_btn(&m_save_btn, m_save_btn_id, "save", Action::Save, _L("Save"));
@@ -918,8 +922,14 @@ static wxString get_string_value(std::string opt_key, const DynamicPrintConfig& 
             config.opt<ConfigOptionFloats>(opt_key)->get_at(opt_idx);
         return double_to_string(val, opt->precision);
     }
-    case coString:
-        return from_u8(config.opt_string(opt_key));
+    case coString: {
+        //character '<' '>' create strange problems for wxWidget, so remove them (only for the display)
+        std::string str = config.opt_string(opt_key);
+        boost::erase_all(str, "<");
+        boost::erase_all(str, ">");
+        return from_u8(str);
+    }
+
     case coStrings: {
         const ConfigOptionStrings* strings = config.opt<ConfigOptionStrings>(opt_key);
         if (strings) {
@@ -942,6 +952,12 @@ static wxString get_string_value(std::string opt_key, const DynamicPrintConfig& 
             out = double_to_string(float_percent->value, opt->precision) + (float_percent->percent ? "%" : "");
         return out;
     }
+    case coFloatsOrPercents: {
+        const ConfigOptionFloatsOrPercents* floats_percents = config.opt<ConfigOptionFloatsOrPercents>(opt_key);
+        if (floats_percents)
+            out = double_to_string(floats_percents->get_at(opt_idx).value, opt->precision) + (floats_percents->get_at(opt_idx).percent ? "%" : "");
+        return out;
+    }
     case coEnum: {
         if (opt_key == "top_fill_pattern" ||
             opt_key == "bottom_fill_pattern" ||
@@ -952,6 +968,8 @@ static wxString get_string_value(std::string opt_key, const DynamicPrintConfig& 
             return get_string_from_enum<InfillPattern>(opt_key, config);
         if (opt_key == "complete_objects_sort")
             return get_string_from_enum<CompleteObjectSort>(opt_key, config);
+        if (opt_key == "config_compatibility")
+            return get_string_from_enum<ForwardCompatibilitySubstitutionRule>(opt_key, config);
         if (opt_key == "display_orientation")
             return get_string_from_enum<SLADisplayOrientation>(opt_key, config);
         if (opt_key == "output_format")
@@ -975,6 +993,8 @@ static wxString get_string_value(std::string opt_key, const DynamicPrintConfig& 
             return get_string_from_enum<SeamPosition>(opt_key, config);
         if (opt_key == "printhost_authorization_type")
             return get_string_from_enum<AuthorizationType>(opt_key, config);
+        if (opt_key == "remaining_times_type")
+            return get_string_from_enum<RemainingTimeType>(opt_key, config);
         if (opt_key == "seam_position")
             return get_string_from_enum<SeamPosition>(opt_key, config);
         if (opt_key == "support_material_contact_distance_type")
@@ -1032,7 +1052,7 @@ void UnsavedChangesDialog::update(Preset::Type type, PresetCollection* dependent
     m_discard_btn  ->Bind(wxEVT_ENTER_WINDOW, [this]                       (wxMouseEvent& e) { show_info_line(Action::Discard); e.Skip(); });
 
 
-    if (type == Preset::TYPE_INVALID) {
+    if (type == Preset::TYPE_INVALID || !dependent_presets) {
         m_action_line->SetLabel(header + "\n" + _L("The following presets were modified:"));
     }
     else {

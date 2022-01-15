@@ -84,7 +84,7 @@ public:
         ExtrusionEntityCollection*  gap_fill,
         // Infills without the gap fills
         SurfaceCollection*          fill_surfaces)
-        : slices(slices), lower_slices(nullptr), upper_slices(nullptr),
+        : slices(slices), lower_slices(nullptr), upper_slices(nullptr), layer(nullptr),
             perimeter_flow(flow), ext_perimeter_flow(flow),
             overhang_flow(flow), solid_infill_flow(flow),
             config(config), object_config(object_config), print_config(print_config),
@@ -99,11 +99,12 @@ private:
     double      _ext_mm3_per_mm;
     double      _mm3_per_mm;
     double      _mm3_per_mm_overhang;
-    Polygons    _lower_slices_bridge_flow;
-    Polygons    _lower_slices_bridge_speed;
+    Polygons    _lower_slices_bridge_flow_small;
+    Polygons    _lower_slices_bridge_flow_big;
+    Polygons    _lower_slices_bridge_speed_small;
+    Polygons    _lower_slices_bridge_speed_big;
 
-    template<typename LINE>
-    ExtrusionPaths create_overhangs(LINE loop_polygons, ExtrusionRole role, bool is_external) const;
+    ExtrusionPaths create_overhangs(const Polyline& loop_polygons, ExtrusionRole role, bool is_external) const;
 
     // transform loops into ExtrusionEntityCollection, adding also thin walls into it.
     ExtrusionEntityCollection _traverse_loops(const PerimeterGeneratorLoops &loops, ThickPolylines &thin_walls) const;

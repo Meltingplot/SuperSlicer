@@ -7,9 +7,9 @@
 
 namespace Slic3r {
 
-void FillLine::init_spacing(coordf_t spacing, const FillParams& params) {
+void FillLine::init_spacing(double spacing, const FillParams& params) {
 
-    this->_min_spacing = scale_(spacing);
+    this->_min_spacing = scale_t(spacing);
     assert(params.density > 0.0001f && params.density <= 1.f);
     this->_line_spacing = coord_t(coordf_t(this->_min_spacing) / params.density);
     this->_diagonal_distance = this->_line_spacing * 2;
@@ -94,7 +94,7 @@ void FillLine::_fill_surface_single(
         // offset the expolygon by max(min_spacing/2, extra)
         ExPolygon expolygon_off;
         {
-            ExPolygons expolygons_off = offset_ex(expolygon, this->_min_spacing/2);
+            ExPolygons expolygons_off = offset_ex(expolygon, coordf_t(this->_min_spacing / 2));
             if (! expolygons_off.empty()) {
                 // When expanding a polygon, the number of islands could only shrink. Therefore the offset_ex shall generate exactly one expanded island for one input island.
                 assert(expolygons_off.size() == 1);

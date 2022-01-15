@@ -37,7 +37,7 @@ public:
 
 	// Load the slic3r.ini from a user profile directory (or a datadir, if configured).
 	// return error string or empty strinf
-	std::string		   	load();
+	std::string         load();
 	// Store the slic3r.ini into a user profile directory (or a datadir, if configured).
 	void 			   	save();
 
@@ -122,6 +122,8 @@ public:
 	//void                update_last_output_dir(const std::string &dir);
 	std::string 		get_last_output_dir(const std::string& alt, const bool removable = false) const;
 	void                update_last_output_dir(const std::string &dir, const bool removable = false);
+
+	bool                get_show_overwrite_dialog() const { return get("show_overwrite_dialog") != "0"; }
 
 	// reset the current print / filament / printer selections, so that 
 	// the  PresetBundle::load_selections(const AppConfig &config) call will select

@@ -208,7 +208,7 @@ namespace Slic3r {
             float extrude_factor_override_percentage;
             float time; // s
             float time_acceleration;
-            std::string line_m73_mask;
+            RemainingTimeType remaining_times_type;
             State curr;
             State prev;
             CustomGCodeTime gcode_time;
@@ -507,6 +507,8 @@ namespace Slic3r {
         // Move
         void process_G0(const GCodeReader::GCodeLine& line);
         void process_G1(const GCodeReader::GCodeLine& line);
+        void process_G2_G3(const GCodeReader::GCodeLine& line, bool direct);
+        void emit_G1_from_G2(Vec2d dest, float de, float f);
 
         // Retract
         void process_G10(const GCodeReader::GCodeLine& line);

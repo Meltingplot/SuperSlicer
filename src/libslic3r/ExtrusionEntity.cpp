@@ -64,12 +64,12 @@ void ExtrusionPath::polygons_covered_by_width(Polygons &out, const float scaled_
     polygons_append(out, offset(this->polyline, double(scale_(this->width/2)) + scaled_epsilon));
 }
 
-void ExtrusionPath::polygons_covered_by_spacing(Polygons &out, const float scaled_epsilon) const
+void ExtrusionPath::polygons_covered_by_spacing(Polygons &out, const float spacing_ratio, const float scaled_epsilon) const
 {
     // Instantiating the Flow class to get the line spacing.
     // Don't know the nozzle diameter, setting to zero. It shall not matter it shall be optimized out by the compiler.
     // if the spacing is negative, use the width instead. can happen on ironing second pass.
-    Flow flow(this->width, this->height, 0.f, (this->width*4 < this->height)?true:is_bridge(this->role()));
+    Flow flow(this->width, this->height, 0.f, spacing_ratio, (this->width*4 < this->height)?true:is_bridge(this->role()));
     polygons_append(out, offset(this->polyline, 0.5f * double(flow.scaled_spacing()) + scaled_epsilon));
 }
 
@@ -213,21 +213,25 @@ void ExtrusionLoop::split_at(const Point &point, bool prefer_non_overhang)
     this->split_at_vertex(p);
 }
 
-void ExtrusionLoop::clip_end(double distance, ExtrusionPaths* paths) const
+ExtrusionPaths clip_end(ExtrusionPaths& paths, double distance)
 {
-    *paths = this->paths;
+    ExtrusionPaths removed;
     
-    while (distance > 0 && !paths->empty()) {
-        ExtrusionPath &last = paths->back();
+    while (distance > 0 && !paths.empty()) {
+        ExtrusionPath& last = paths.back();
+        removed.push_back(last);
         double len = last.length();
         if (len <= distance) {
-            paths->pop_back();
+            paths.pop_back();
             distance -= len;
         } else {
             last.polyline.clip_end(distance);
+            removed.back().polyline.clip_start(removed.back().polyline.length() - distance);
             break;
         }
     }
+    std::reverse(removed.begin(), removed.end());
+    return removed;
 }
 
 bool ExtrusionLoop::has_overhang_point(const Point &point) const
@@ -249,19 +253,10 @@ void ExtrusionLoop::polygons_covered_by_width(Polygons &out, const float scaled_
         path.polygons_covered_by_width(out, scaled_epsilon);
 }
 
-void ExtrusionLoop::polygons_covered_by_spacing(Polygons &out, const float scaled_epsilon) const
+void ExtrusionLoop::polygons_covered_by_spacing(Polygons &out, const float spacing_ratio, const float scaled_epsilon) const
 {
     for (const ExtrusionPath &path : this->paths)
-        path.polygons_covered_by_spacing(out, scaled_epsilon);
-}
-
-double ExtrusionLoop::min_mm3_per_mm() const
-{
-    double min_mm3_per_mm = std::numeric_limits<double>::max();
-    for (const ExtrusionPath &path : this->paths)
-        if (path.role() != erGapFill && path.role() != erThinWall && path.role() != erMilling)
-            min_mm3_per_mm = std::min(min_mm3_per_mm, path.mm3_per_mm);
-    return min_mm3_per_mm;
+        path.polygons_covered_by_spacing(out, spacing_ratio, scaled_epsilon);
 }
 
 std::string ExtrusionEntity::role_to_string(ExtrusionRole role)
@@ -385,7 +380,7 @@ void ExtrusionPrinter::use(const ExtrusionEntityCollection &collection) {
         if (i != 0) ss << ",";
         collection.entities[i]->visit(*this);
     }
-    if(collection.no_sort) ss<<", no_sort=true";
+    if(!collection.can_sort()) ss<<", no_sort=true";
     ss << "}";
 }
 
@@ -394,6 +389,28 @@ void ExtrusionLength::default_use(const ExtrusionEntity& entity) { dist += entit
 void ExtrusionLength::use(const ExtrusionEntityCollection& collection) {
     for (int i = 0; i < collection.entities.size(); i++) {
         collection.entities[i]->visit(*this);
+    }
+}
+
+
+void ExtrusionVisitorRecursiveConst::use(const ExtrusionMultiPath& multipath) {
+    for (const ExtrusionPath& path: multipath.paths) {
+        path.visit(*this);
+    }
+}
+void ExtrusionVisitorRecursiveConst::use(const ExtrusionMultiPath3D& multipath3D) {
+    for (const ExtrusionPath3D& path3D : multipath3D.paths) {
+        path3D.visit(*this);
+    }
+}
+void ExtrusionVisitorRecursiveConst::use(const ExtrusionLoop& loop) {
+    for (const ExtrusionPath& path : loop.paths) {
+        path.visit(*this);
+    }
+}
+void ExtrusionVisitorRecursiveConst::use(const ExtrusionEntityCollection& collection) {
+    for (const ExtrusionEntity* entity : collection.entities) {
+        entity->visit(*this);
     }
 }
 

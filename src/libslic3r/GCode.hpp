@@ -23,6 +23,7 @@
 #include <memory>
 #include <map>
 #include <string>
+#include <chrono>
 
 #ifdef HAS_PRESSURE_EQUALIZER
 #include "GCode/PressureEqualizer.hpp"
@@ -289,8 +290,8 @@ private:
 
 	struct InstanceToPrint
 	{
-		InstanceToPrint(ObjectByExtruder &object_by_extruder, size_t layer_id, const PrintObject &print_object, size_t instance_id) :
-			object_by_extruder(object_by_extruder), layer_id(layer_id), print_object(print_object), instance_id(instance_id) {}
+        InstanceToPrint(ObjectByExtruder& object_by_extruder, size_t layer_id, const PrintObject& print_object, size_t instance_id) :
+            object_by_extruder(object_by_extruder), layer_id(layer_id), print_object(print_object), instance_id(instance_id) {}
 
 		// Repository 
 		ObjectByExtruder		&object_by_extruder;
@@ -315,8 +316,10 @@ private:
     std::string     extrude_ironing(const Print& print, const std::vector<ObjectByExtruder::Island::Region>& by_region);
     std::string     extrude_support(const ExtrusionEntityCollection &support_fills);
 
-    std::string     travel_to(const Point &point, ExtrusionRole role, std::string comment);
-    bool            needs_retraction(const Polyline &travel, ExtrusionRole role = erNone);
+    Polyline        travel_to(std::string& gcode, const Point &point, ExtrusionRole role);
+    void            write_travel_to(std::string& gcode, const Polyline& travel, std::string comment);
+    bool            can_cross_perimeter(const Polyline& travel);
+    bool            needs_retraction(const Polyline& travel, ExtrusionRole role = erNone, coordf_t max_min_dist = 0);
     std::string     retract(bool toolchange = false);
     std::string     unretract() { return m_writer.unlift() + m_writer.unretract(); }
     std::string     set_extruder(uint16_t extruder_id, double print_z, bool no_toolchange = false);
@@ -341,12 +344,14 @@ private:
     AvoidCrossingPerimeters             m_avoid_crossing_perimeters;
     bool                                m_enable_loop_clipping;
     // If enabled, the G-code generator will put following comments at the ends
-    // of the G-code lines: _EXTRUDE_SET_SPEED, _WIPE, _BRIDGE_FAN_START, _BRIDGE_FAN_END
+    // of the G-code lines: _EXTRUDE_SET_SPEED, _WIPE, _BRIDGE_FAN_START, _BRIDGE_FAN_END, _BRIDGE_INTERNAL_FAN_START, _BRIDGE_INTERNAL_FAN_END
     // Those comments are received and consumed (removed from the G-code) by the CoolingBuffer.pm Perl module.
     bool                                m_enable_cooling_markers;
     // Markers for the Pressure Equalizer to recognize the extrusion type.
     // The Pressure Equalizer removes the markers from the final G-code.
     bool                                m_enable_extrusion_role_markers;
+    // HACK to avoid multiple Z move.
+    std::string                         m_delayed_layer_change;
     // Keeps track of the last extrusion role passed to the processor
     ExtrusionRole                       m_last_processor_extrusion_role;
     // How many times will change_layer() be called?
@@ -357,6 +362,13 @@ private:
     // Current layer processed. Insequential printing mode, only a single copy will be printed.
     // In non-sequential mode, all its copies will be printed.
     const Layer*                        m_layer;
+    // idx of the current instance printed. (or the last one)
+    uint16_t                            m_print_object_instance_id = -1;
+    // For crossing perimeter retraction detection  (contain the layer & nozzle widdth used to construct it)
+    // !!!! not thread-safe !!!! if threaded per layer, please store it in the thread.
+    struct SliceOffsetted {
+        ExPolygons slices; const Layer* layer; coord_t diameter;
+    }                                   m_layer_slices_offseted{ {},nullptr, 0};
     double                              m_volumetric_speed;
     // Support for the extrusion role markers. Which marker is active?
     ExtrusionRole                       m_last_extrusion_role;
@@ -408,6 +420,9 @@ private:
 
     bool m_silent_time_estimator_enabled;
 
+    //for gui status update
+    std::chrono::time_point<std::chrono::system_clock> m_last_status_update;
+
     // Processor
     GCodeProcessor m_processor;
 
@@ -429,6 +444,7 @@ private:
 
     std::string _extrude(const ExtrusionPath &path, const std::string &description, double speed = -1);
     std::string _before_extrude(const ExtrusionPath &path, const std::string &description, double speed = -1);
+    double_t    _compute_speed_mm_per_sec(const ExtrusionPath& path, double speed = -1);
     std::string _after_extrude(const ExtrusionPath &path);
     void print_machine_envelope(FILE *file, Print &print);
     void _print_first_layer_bed_temperature(FILE *file, Print &print, const std::string &gcode, uint16_t first_printing_extruder_id, bool wait);

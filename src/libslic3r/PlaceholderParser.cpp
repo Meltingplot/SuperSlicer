@@ -666,6 +666,85 @@ namespace client
             return opt;
         }
 
+
+        // copy of ConfigBase::get_computed_value
+        double get_computed_value(const t_config_option_key& opt_key) const
+        {
+            // Get stored option value.
+            const ConfigOption* raw_opt = this->optptr(opt_key);
+            if (raw_opt == nullptr) {
+                std::stringstream ss; ss << "You can't define an option that need " << opt_key << " without defining it!";
+                throw std::runtime_error(ss.str());
+            }
+
+            if (!raw_opt->is_vector()) {
+                if (raw_opt->type() == coFloat)
+                    return static_cast<const ConfigOptionFloat*>(raw_opt)->value;
+                if (raw_opt->type() == coInt)
+                    return static_cast<const ConfigOptionInt*>(raw_opt)->value;
+                if (raw_opt->type() == coBool)
+                    return static_cast<const ConfigOptionBool*>(raw_opt)->value ? 1 : 0;
+                const ConfigOptionDef* opt_def = nullptr;
+                const ConfigOptionPercent* cast_opt = nullptr;
+                if (raw_opt->type() == coFloatOrPercent) {
+                    if (!static_cast<const ConfigOptionFloatOrPercent*>(raw_opt)->percent)
+                        return static_cast<const ConfigOptionFloatOrPercent*>(raw_opt)->value;
+                    // Get option definition.
+                    opt_def = print_config_def.get(opt_key);
+                    cast_opt = static_cast<const ConfigOptionFloatOrPercent*>(raw_opt);
+                    assert(opt_def != nullptr);
+                }
+                if (raw_opt->type() == coPercent) {
+                    // Get option definition.
+                    opt_def = print_config_def.get(opt_key);
+                    assert(opt_def != nullptr);
+                    cast_opt = static_cast<const ConfigOptionPercent*>(raw_opt);
+                }
+                if (opt_def != nullptr) {
+                    //if over no other key, it's most probably a simple %
+                    if (opt_def->ratio_over == "")
+                        return cast_opt->get_abs_value(1);
+                    // Compute absolute value over the absolute value of the base option.
+                    //FIXME there are some ratio_over chains, which end with empty ratio_with.
+                    // For example, XXX_extrusion_width parameters are not handled by get_abs_value correctly.
+                    if (!opt_def->ratio_over.empty() && opt_def->ratio_over != "depends")
+                        return cast_opt->get_abs_value(this->get_computed_value(opt_def->ratio_over));
+
+                    std::stringstream ss; ss << "ConfigBase::get_abs_value(): " << opt_key << " has no valid ratio_over to compute of";
+                    throw ConfigurationError(ss.str());
+                }
+            } else {
+                // check if it's an extruder_id array
+                const ConfigOptionVectorBase* vector_opt = static_cast<const ConfigOptionVectorBase*>(raw_opt);
+                if (vector_opt->is_extruder_size()) {
+
+                    if (raw_opt->type() == coFloats || raw_opt->type() == coInts || raw_opt->type() == coBools)
+                        return vector_opt->getFloat(current_extruder_id);
+                    if (raw_opt->type() == coFloatsOrPercents) {
+                        const ConfigOptionFloatsOrPercents* opt_fl_per = static_cast<const ConfigOptionFloatsOrPercents*>(raw_opt);
+                        if (!opt_fl_per->values[current_extruder_id].percent)
+                            return opt_fl_per->values[current_extruder_id].value;
+
+                        const ConfigOptionDef* opt_def = print_config_def.get(opt_key);
+                        if (!opt_def->ratio_over.empty() && opt_def->ratio_over != "depends")
+                            return opt_fl_per->get_abs_value(current_extruder_id, this->get_computed_value(opt_def->ratio_over));
+                        std::stringstream ss; ss << "ConfigBase::get_abs_value(): " << opt_key << " has no valid ratio_over to compute of";
+                        throw ConfigurationError(ss.str());
+                    }
+                    if (raw_opt->type() == coPercents) {
+                        const ConfigOptionPercents* opt_per = static_cast<const ConfigOptionPercents*>(raw_opt);
+                        const ConfigOptionDef* opt_def = print_config_def.get(opt_key);
+                        if (!opt_def->ratio_over.empty() && opt_def->ratio_over != "depends")
+                            return opt_per->get_abs_value(current_extruder_id, this->get_computed_value(opt_def->ratio_over));
+                        std::stringstream ss; ss << "ConfigBase::get_abs_value(): " << opt_key << " has no valid ratio_over to compute of";
+                        throw ConfigurationError(ss.str());
+                    }
+                }
+            }
+            std::stringstream ss; ss << "ConfigBase::get_abs_value(): " << opt_key << " has not a valid option type for get_abs_value()";
+            throw ConfigurationError(ss.str());
+        }
+
         const ConfigOption*     resolve_symbol(const std::string &opt_key) const { return this->optptr(opt_key); }
 
         template <typename Iterator>
@@ -719,6 +798,8 @@ namespace client
                     opt_key_str.resize(opt_key_str.size() - 1);
                 opt = ctx->resolve_symbol(opt_key_str);
             }
+            if (opt == nullptr)
+                ctx->throw_exception("Variable does not exist", opt_key);
             if (! opt->is_vector())
                 ctx->throw_exception("Trying to index a scalar variable", opt_key);
             const ConfigOptionVectorBase *vec = static_cast<const ConfigOptionVectorBase*>(opt);
@@ -754,8 +835,14 @@ namespace client
             OptWithPos<Iterator>            &opt,
             expr<Iterator>                  &output)
         {
-            if (opt.opt->is_vector())
-                ctx->throw_exception("Referencing a vector variable when scalar is expected", opt.it_range);
+            std::string opt_key(opt.it_range.begin(), opt.it_range.end());
+            const ConfigOptionVectorBase* vector_opt = nullptr;
+            if (opt.opt->is_vector()) {
+                vector_opt = static_cast<const ConfigOptionVectorBase*>(opt.opt);
+                if (!vector_opt->is_extruder_size())
+                    ctx->throw_exception("Referencing a vector variable when scalar is expected", opt.it_range);
+            }
+            const ConfigOptionDef* opt_def;
             switch (opt.opt->type()) {
             case coFloat:   output.set_d(opt.opt->getFloat());   break;
             case coInt:     output.set_i(opt.opt->getInt());     break;
@@ -765,7 +852,6 @@ namespace client
             case coBool:    output.set_b(opt.opt->getBool());    break;
             case coFloatOrPercent:
             {
-                std::string opt_key(opt.it_range.begin(), opt.it_range.end());
                 if (boost::ends_with(opt_key, "extrusion_width")) {
                 	// Extrusion width use the first nozzle diameter
                     output.set_d(Flow::extrusion_width(opt_key, *ctx, static_cast<unsigned int>(ctx->current_extruder_id)));
@@ -774,7 +860,7 @@ namespace client
                     output.set_d(opt.opt->getFloat());
                 } else {
                 	// Resolve dependencies using the "ratio_over" link to a parent value.
-			        const ConfigOptionDef  *opt_def = print_config_def.get(opt_key);
+			        opt_def = print_config_def.get(opt_key);
 			        assert(opt_def != nullptr);
 			        double v = opt.opt->getFloat() * 0.01; // percent to ratio
 			        for (;;) {
@@ -787,20 +873,60 @@ namespace client
                     		v *= Flow::extrusion_width(opt_def->ratio_over, static_cast<const ConfigOptionFloatOrPercent*>(opt_parent), *ctx, static_cast<unsigned int>(ctx->current_extruder_id));
                     		break;
                     	}
-                    	if (opt_parent->type() == coFloat || opt_parent->type() == coFloatOrPercent) {
-			        		v *= opt_parent->getFloat();
-			        		if (opt_parent->type() == coFloat || ! static_cast<const ConfigOptionFloatOrPercent*>(opt_parent)->percent)
-			        			break;
-			        		v *= 0.01; // percent to ratio
-			        	}
-		        		// Continue one level up in the "ratio_over" hierarchy.
-				        opt_def = print_config_def.get(opt_def->ratio_over);
-				        assert(opt_def != nullptr);
+                        double val = ctx->get_computed_value(opt_def->ratio_over);
+                        v *= val;
+                        break;
+            //        	if (opt_parent->type() == coFloat || opt_parent->type() == coFloatOrPercent) {
+			        	//	v *= opt_parent->getFloat();
+			        	//	if (opt_parent->type() == coFloat || ! static_cast<const ConfigOptionFloatOrPercent*>(opt_parent)->percent)
+			        	//		break;
+			        	//	v *= 0.01; // percent to ratio
+			        	//}
+		        		//// Continue one level up in the "ratio_over" hierarchy.
+				        //opt_def = print_config_def.get(opt_def->ratio_over);
+				        //assert(opt_def != nullptr);
 			        }
                     output.set_d(v);
 	            }
 		        break;
 		    }
+            case coInts:
+                opt_def = print_config_def.get(opt_key);
+                if (opt_def->is_vector_extruder) {
+                    output.set_i((int)((ConfigOptionVectorBase*)opt.opt)->getFloat(ctx->current_extruder_id));
+                    break;
+                } else
+                    ctx->throw_exception("Unknown scalar variable type", opt.it_range);
+            case coFloats:
+            case coPercents:
+                vector_opt = static_cast<const ConfigOptionVectorBase*>(opt.opt);
+                if (vector_opt->is_extruder_size()) {
+                    output.set_d(((ConfigOptionVectorBase*)opt.opt)->getFloat(ctx->current_extruder_id));
+                    break;
+                } else
+                    ctx->throw_exception("Unknown scalar variable type", opt.it_range);
+            case coFloatsOrPercents:
+                vector_opt = static_cast<const ConfigOptionVectorBase*>(opt.opt);
+                if (vector_opt->is_extruder_size()) {
+                    output.set_d(ctx->get_computed_value(opt_key));
+                    break;
+                } else
+                    ctx->throw_exception("Unknown scalar variable type", opt.it_range);
+            case coStrings:
+                vector_opt = static_cast<const ConfigOptionVectorBase*>(opt.opt);
+                if (vector_opt->is_extruder_size()) {
+                    output.set_s(((ConfigOptionStrings*)opt.opt)->values[ctx->current_extruder_id]);
+                    break;
+                } else
+                    ctx->throw_exception("Unknown scalar variable type", opt.it_range);
+            case coPoints:
+                vector_opt = static_cast<const ConfigOptionVectorBase*>(opt.opt);
+                if (vector_opt->is_extruder_size()) {
+                    output.set_s(to_string(((ConfigOptionPoints*)opt.opt)->values[ctx->current_extruder_id]));
+                    break;
+                }else
+                    ctx->throw_exception("Unknown scalar variable type", opt.it_range);
+                //TODO: coFloatOrPercents
             default:
                 ctx->throw_exception("Unknown scalar variable type", opt.it_range);
             }
@@ -826,6 +952,7 @@ namespace client
             case coInts:     output.set_i(static_cast<const ConfigOptionInts    *>(opt.opt)->values[idx]); break;
             case coStrings:  output.set_s(static_cast<const ConfigOptionStrings *>(opt.opt)->values[idx]); break;
             case coPercents: output.set_d(static_cast<const ConfigOptionPercents*>(opt.opt)->values[idx]); break;
+            case coFloatsOrPercents: output.set_d(static_cast<const ConfigOptionFloatsOrPercents*>(opt.opt)->values[idx].value); break;
             case coPoints:   output.set_s(to_string(static_cast<const ConfigOptionPoints  *>(opt.opt)->values[idx])); break;
             case coBools:    output.set_b(static_cast<const ConfigOptionBools   *>(opt.opt)->values[idx] != 0); break;
             default:
@@ -1366,5 +1493,185 @@ bool PlaceholderParser::evaluate_boolean_expression(const std::string &templ, co
     context.just_boolean_expression = true;
     return process_macro(templ, context) == "true";
 }
+
+
+void PlaceholderParser::append_custom_variables(std::map<std::string, std::vector<std::string>> name2var_array, int nb_extruders) {
+
+    bool is_array = nb_extruders > 0;
+    if (!is_array) nb_extruders = 1;
+    std::regex is_a_name("[a-zA-Z_]+");
+    for (const auto& entry : name2var_array) {
+        if (entry.first.empty())
+            continue;
+        if (!std::regex_match(entry.first, is_a_name))
+            continue;
+        const std::vector<std::string>& values = entry.second;
+        //check if all values are empty
+        bool is_not_string = false;
+        for (int extruder_id = 0; extruder_id < nb_extruders; ++extruder_id) {
+            if (!values[extruder_id].empty()) {
+                is_not_string = true;
+                break;
+            }
+        }
+        std::vector<std::string> string_values;
+        //check if all values are strings
+        if (is_not_string) {
+            is_not_string = false;
+            for (int extruder_id = 0; extruder_id < nb_extruders; ++extruder_id) {
+                if (!values[extruder_id].empty()) {
+                    if (values[extruder_id].front() != '\"' && values[extruder_id].back() != '\"') {
+                        is_not_string = true;
+                        break;
+                    }
+                    string_values.push_back(values[extruder_id].substr(1, values[extruder_id].size() - 2));
+                } else {
+                    string_values.push_back("");
+                }
+            }
+        }
+        //check if all values are bools
+        bool is_not_bool = !is_not_string;
+        std::vector<unsigned char> bool_values;
+        if (!is_not_bool) {
+            for (int extruder_id = 0; extruder_id < nb_extruders; ++extruder_id) {
+                if (!values[extruder_id].empty()) {
+                    if (boost::algorithm::to_lower_copy(values[extruder_id]) == "true") {
+                        bool_values.push_back(true);
+                    } else if (boost::algorithm::to_lower_copy(values[extruder_id]) == "false") {
+                        bool_values.push_back(false);
+                    } else {
+                        is_not_bool = true;
+                        break;
+                    }
+                } else {
+                    bool_values.push_back(false);
+                }
+            }
+        }
+        //check if all values are numeric
+        bool is_not_numeric = !is_not_string || !is_not_bool;
+        std::vector<double> double_values;
+        //std::regex("\\s*[+-]?([0-9]+\\.[0-9]*([Ee][+-]?[0-9]+)?|\\.[0-9]+([Ee][+-]?[0-9]+)?|[0-9]+[Ee][+-]?[0-9]+)");
+        if (!is_not_numeric) {
+            for (int extruder_id = 0; extruder_id < nb_extruders; ++extruder_id) {
+                if (!values[extruder_id].empty()) {
+                    try {
+                        double_values.push_back(boost::lexical_cast<float>(values[extruder_id]));
+                    }
+                    catch (boost::bad_lexical_cast&) {
+                        is_not_numeric = true;
+                        break;
+                    }
+                } else {
+                    double_values.push_back(0);
+                }
+            }
+        }
+        //if nothing, then it's strings
+        if (is_not_string && is_not_numeric && is_not_bool) {
+            string_values = values;
+            is_not_string = false;
+        }
+        if (!is_not_numeric) {
+            std::stringstream log;
+            log << "Parsing NUM custom variable '" << entry.first << "' : ";
+            for (auto s : double_values) log << ", " << s;
+            BOOST_LOG_TRIVIAL(trace) << log.str();
+            if (is_array) {
+                ConfigOptionFloats* conf = new ConfigOptionFloats(double_values);
+                conf->set_is_extruder_size(true);
+                this->set(entry.first, conf);
+            } else {
+                ConfigOptionFloat* conf = new ConfigOptionFloat(double_values[0]);
+                this->set(entry.first, conf);
+            }
+        } else if (!is_not_bool) {
+            std::stringstream log;
+            log << "Parsing BOOL custom variable '" << entry.first << "' : ";
+            for (auto s : bool_values) log << ", " << s;
+            BOOST_LOG_TRIVIAL(trace) << log.str();
+            if (is_array) {
+                ConfigOptionBools* conf = new ConfigOptionBools(bool_values);
+                conf->set_is_extruder_size(true);
+                this->set(entry.first, conf);
+            } else {
+                ConfigOptionBool* conf = new ConfigOptionBool(bool_values[0]);
+                this->set(entry.first, conf);
+            }
+        } else {
+            for (std::string& s : string_values)
+                boost::replace_all(s, "\\n", "\n");
+            std::stringstream log;
+            log << "Parsing STR custom variable '" << entry.first << "' : ";
+            for (auto s : string_values) log << ", " << s;
+            BOOST_LOG_TRIVIAL(trace) << log.str();
+            if (is_array) {
+                ConfigOptionStrings* conf = new ConfigOptionStrings(string_values);
+                conf->set_is_extruder_size(true);
+                this->set(entry.first, conf);
+            } else {
+                ConfigOptionString* conf = new ConfigOptionString(string_values[0]);
+                this->set(entry.first, conf);
+            }
+        }
+    }
+
+}
+
+void PlaceholderParser::parse_custom_variables(const ConfigOptionString& custom_variables) {
+
+    std::map<std::string, std::vector<std::string>> name2var_array;
+
+    std::string raw_text = custom_variables.value;
+    boost::erase_all(raw_text, "\r");
+    std::vector<std::string> lines;
+    boost::algorithm::split(lines, raw_text, boost::is_any_of("\n"));
+    for (const std::string& line : lines) {
+        int equal_pos = line.find_first_of('=');
+        if (equal_pos != std::string::npos) {
+            std::string name = line.substr(0, equal_pos);
+            std::string value = line.substr(equal_pos + 1);
+            boost::algorithm::trim(name);
+            boost::algorithm::trim(value);
+            if (name2var_array.find(name) == name2var_array.end()) {
+                name2var_array.emplace(name, std::vector<std::string>{ 1, value });
+            } else
+                name2var_array[name][0] = value;
+
+        }
+    }
+    append_custom_variables(name2var_array, 0);
+}
+
+void PlaceholderParser::parse_custom_variables(const ConfigOptionStrings& filament_custom_variables)
+{
+    std::map<std::string, std::vector<std::string>> name2var_array;
+    const std::vector<std::string> empty_array(filament_custom_variables.values.size());
+
+    for (int extruder_id = 0; extruder_id < filament_custom_variables.values.size(); ++extruder_id)
+    {
+        std::string raw_text = filament_custom_variables.values[extruder_id];
+        boost::erase_all(raw_text, "\r");
+        std::vector<std::string> lines;
+        boost::algorithm::split(lines, raw_text, boost::is_any_of("\n"));
+        for (const std::string& line : lines) {
+            int equal_pos = line.find_first_of('=');
+            if (equal_pos != std::string::npos) {
+                std::string name = line.substr(0, equal_pos);
+                std::string value = line.substr(equal_pos + 1);
+                boost::algorithm::trim(name);
+                boost::algorithm::trim(value);
+                if (name2var_array.find(name) == name2var_array.end()) {
+                    name2var_array.emplace(name, empty_array);
+                }
+                name2var_array[name][extruder_id] = value;
+
+            }
+        }
+    }
+    append_custom_variables(name2var_array, filament_custom_variables.values.size());
+}
+
 
 }

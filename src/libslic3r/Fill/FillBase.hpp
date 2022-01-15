@@ -36,12 +36,16 @@ public:
 
 struct FillParams
 {
-    bool        full_infill() const { return density > 0.9999f && density < 1.0001f; }
+    // Allways consider bridge as full infill, whatever the density is.
+    bool        full_infill() const { return flow.bridge || (density > 0.9999f && density < 1.0001f); }
     // Don't connect the fill lines around the inner perimeter.
     bool        dont_connect() const { return connection == InfillConnection::icNotConnected; }
 
     // Fill density, fraction in <0, 1>
     float       density     { 0.f };
+
+    // bridge offset from the centerline.
+    coord_t       bridge_offset = -1;
 
     // Fill extruding flow multiplier, fraction in <0, 1>. Used by "over bridge compensation"
     float       flow_mult   { 1.0f };
@@ -71,11 +75,17 @@ struct FillParams
     // if role == erNone or ERCustom, this method have to choose the best role itself, else it must use the argument's role.
     ExtrusionRole role      { erNone };
 
-    //flow to use
-    Flow          flow      = Flow(0.f, 0.f, 0.f, false);
+    // flow to use
+    Flow        flow        = Flow(0.f, 0.f, 0.f, 1.f, false);
+
+    // to order the fills by priority
+    int32_t     priority    = 0;
 
     //full configuration for the region, to avoid copying every bit that is needed. Use this for process-specific parameters.
     PrintRegionConfig const *config{ nullptr };
+
+    // Zero based extruder ID.
+    unsigned int    extruder = 0;
 };
 static_assert(IsTriviallyCopyable<FillParams>::value, "FillParams class is not POD (and it should be - see constructor).");
 
@@ -85,9 +95,9 @@ public:
     // Index of the layer.
     size_t      layer_id;
     // Z coordinate of the top print surface, in unscaled coordinates
-    coordf_t    z;
+    double      z;
     // infill / perimeter overlap, in unscaled coordinates 
-    coordf_t    overlap;
+    double      overlap;
     ExPolygons  no_overlap_expolygons;
     // in radians, ccw, 0 = East
     float       angle;
@@ -104,7 +114,7 @@ public:
     FillAdaptive::Octree* adapt_fill_octree = nullptr;
 protected:
     // in unscaled coordinates, please use init (after settings all others settings) as some algos want to modify the value
-    coordf_t    spacing_priv;
+    double    spacing_priv;
 
 public:
     virtual ~Fill() {}
@@ -114,8 +124,8 @@ public:
     static Fill* new_from_type(const std::string &type);
 
     void         set_bounding_box(const Slic3r::BoundingBox &bbox) { bounding_box = bbox; }
-    virtual void init_spacing(coordf_t spacing, const FillParams &params) { this->spacing_priv = spacing;  }
-    coordf_t get_spacing() const { return spacing_priv; }
+    virtual void init_spacing(double spacing, const FillParams &params) { this->spacing_priv = spacing;  }
+    double get_spacing() const { return spacing_priv; }
 
     // Do not sort the fill lines to optimize the print head path?
     virtual bool no_sort() const { return false; }
@@ -177,7 +187,7 @@ public:
     //for rectilinear
     static void connect_infill(Polylines&& infill_ordered, const ExPolygon& boundary, const Polygons& polygons_src, Polylines& polylines_out, const double spacing, const FillParams& params);
 
-    static coord_t  _adjust_solid_spacing(const coord_t width, const coord_t distance);
+    static coord_t  _adjust_solid_spacing(const coord_t width, const coord_t distance, const double factor_max = 1.2);
 
     // Align a coordinate to a grid. The coordinate may be negative,
     // the aligned value will never be bigger than the original one.

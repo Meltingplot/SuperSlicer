@@ -12,6 +12,7 @@
 #include "TriangleMesh.hpp"
 #include "Arrange.hpp"
 #include "CustomGCode.hpp"
+#include "enum_bitmask.hpp"
 
 #include <map>
 #include <memory>
@@ -305,6 +306,7 @@ public:
     const BoundingBoxf3& raw_bounding_box() const;
     // A snug bounding box around the transformed non-modifier object volumes.
     BoundingBoxf3 instance_bounding_box(size_t instance_idx, bool dont_translate = false) const;
+    BoundingBoxf3 instance_bounding_box(const ModelInstance& instance, bool dont_translate = false) const;
 	// A snug bounding box of non-transformed (non-rotated, non-scaled, non-translated) sum of non-modifier object volumes.
 	const BoundingBoxf3& raw_mesh_bounding_box() const;
 	// A snug bounding box of non-transformed (non-rotated, non-scaled, non-translated) sum of all object volumes.
@@ -875,8 +877,6 @@ public:
     void transform_mesh(TriangleMesh* mesh, bool dont_translate = false) const;
     // Calculate a bounding box of a transformed mesh. To be called on an external mesh.
     BoundingBoxf3 transform_mesh_bounding_box(const TriangleMesh& mesh, bool dont_translate = false) const;
-    // Transform an external bounding box.
-    BoundingBoxf3 transform_bounding_box(const BoundingBoxf3 &bbox, bool dont_translate = false) const;
     // Transform an external vector.
     Vec3d transform_vector(const Vec3d& v, bool dont_translate = false) const;
     // To be called on an external polygon. It does not translate the polygon, only rotates and scales.
@@ -996,8 +996,20 @@ public:
 
     OBJECTBASE_DERIVED_COPY_MOVE_CLONE(Model)
 
-    static Model read_from_file(const std::string& input_file, DynamicPrintConfig* config = nullptr, bool add_default_instances = true, bool check_version = false);
-    static Model read_from_archive(const std::string& input_file, DynamicPrintConfig* config, bool add_default_instances = true, bool check_version = false);
+    enum class LoadAttribute : int {
+        AddDefaultInstances,
+        CheckVersion
+    };
+    using LoadAttributes = enum_bitmask<LoadAttribute>;
+
+    static Model read_from_file(
+        const std::string& input_file, 
+        DynamicPrintConfig* config = nullptr, ConfigSubstitutionContext* config_substitutions = nullptr,
+        LoadAttributes options = LoadAttribute::AddDefaultInstances);
+    static Model read_from_archive(
+        const std::string& input_file, 
+        DynamicPrintConfig* config, ConfigSubstitutionContext* config_substitutions,
+        LoadAttributes options = LoadAttribute::AddDefaultInstances);
 
     bool equals(const Model& rhs) const;
 
@@ -1061,6 +1073,8 @@ private:
 		ar(materials, objects, wipe_tower_wrapper);
 	}
 };
+
+ENABLE_ENUM_BITMASK_OPERATORS(Model::LoadAttribute)
 
 #undef OBJECTBASE_DERIVED_COPY_MOVE_CLONE
 #undef OBJECTBASE_DERIVED_PRIVATE_COPY_MOVE

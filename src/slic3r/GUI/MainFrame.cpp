@@ -253,6 +253,61 @@ DPIFrame(NULL, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxDEFAULT_FRAME_S
     }
 }
 
+void MainFrame::update_icon() {
+
+    // icons for ESettingsLayout::Hidden
+    wxImageList* img_list = nullptr;
+    int icon_size = 0;
+    try {
+        icon_size = atoi(wxGetApp().app_config->get("tab_icon_size").c_str());
+    }
+    catch (std::exception e) {}
+    switch (m_layout)
+    {
+    case ESettingsLayout::Unknown:
+    {
+        break;
+    } case ESettingsLayout::Old:
+      case ESettingsLayout::Hidden:
+    {
+        if (m_tabpanel->GetPageCount() == 4 && icon_size >= 8) {
+            m_tabpanel->SetPageImage(0, 0);
+            m_tabpanel->SetPageImage(1, 3);
+            m_tabpanel->SetPageImage(2, m_plater->printer_technology() == PrinterTechnology::ptSLA ? 6 : 4);
+            m_tabpanel->SetPageImage(3, m_plater->printer_technology() == PrinterTechnology::ptSLA ? 7 : 5);
+        }
+        break;
+    }
+    case ESettingsLayout::Tabs:
+    {
+        if (icon_size >= 8)
+        {
+            m_tabpanel->SetPageImage(0, 0);
+            m_tabpanel->SetPageImage(1, 1);
+            m_tabpanel->SetPageImage(2, 2);
+            m_tabpanel->SetPageImage(3, 3);
+            m_tabpanel->SetPageImage(4, m_plater->printer_technology() == PrinterTechnology::ptSLA ? 6 : 4);
+            m_tabpanel->SetPageImage(5, m_plater->printer_technology() == PrinterTechnology::ptSLA ? 7 : 5);
+        }
+        break;
+    }
+    case ESettingsLayout::Dlg:
+    {
+        if (m_tabpanel->GetPageCount() == 4 && icon_size >= 8) {
+            m_tabpanel->SetPageImage(0, 3);
+            m_tabpanel->SetPageImage(1, m_plater->printer_technology() == PrinterTechnology::ptSLA ? 6 : 4);
+            m_tabpanel->SetPageImage(2, m_plater->printer_technology() == PrinterTechnology::ptSLA ? 7 : 5);
+        }
+        break;
+    }
+    case ESettingsLayout::GCodeViewer:
+    {
+        break;
+    }
+    }
+
+}
+
 void MainFrame::update_layout()
 {
     auto restore_to_creation = [this]() {
@@ -261,6 +316,8 @@ void MainFrame::update_layout()
                 sizer->Detach(0);
             }
         };
+
+        std::cout << "update_layout: " << m_tabpanel->GetPageCount() << "\n";
 
         // On Linux m_plater needs to be removed from m_tabpanel before to reparent it
         //clear if previous was old
@@ -373,29 +430,7 @@ void MainFrame::update_layout()
         m_plater->Reparent(m_tabpanel);
         m_tabpanel->InsertPage(0, m_plater, _L("Plater"));
         m_main_sizer->Add(m_tabpanel, 1, wxEXPAND);
-        // icons for ESettingsLayout::Old
-        wxImageList* img_list = nullptr;
-        int icon_size = 0;
-        try {
-            icon_size = atoi(wxGetApp().app_config->get("tab_icon_size").c_str());
-        }
-        catch (std::exception e) {}
-        if (m_tabpanel->GetPageCount() == 4 && icon_size >= 8) {
-            std::initializer_list<std::string> icon_list = { "plater", "cog", "spool_cog", "printer_cog" };
-            if (icon_size < 16)
-                icon_list = { "plater", "cog", "spool", "printer" };
-            for (std::string icon_name : icon_list) {
-                const wxBitmap& bmp = create_scaled_bitmap(icon_name, this, icon_size);
-                if (img_list == nullptr)
-                    img_list = new wxImageList(bmp.GetWidth(), bmp.GetHeight());
-                img_list->Add(bmp);
-            }
-            m_tabpanel->AssignImageList(img_list);
-            m_tabpanel->SetPageImage(0, 0);
-            m_tabpanel->SetPageImage(1, 1);
-            m_tabpanel->SetPageImage(2, 2);
-            m_tabpanel->SetPageImage(3, 3);
-        }
+        update_icon();
         // show
         m_plater->Show();
         m_tabpanel->Show();
@@ -407,42 +442,15 @@ void MainFrame::update_layout()
         m_plater->enable_view_toolbar(false);
         bool need_freeze = !this->IsFrozen();
         if(need_freeze) this->Freeze();
-        // icons for ESettingsLayout::Tabs
-        wxImageList* img_list = nullptr;
-        int icon_size = 0;
-        try {
-            icon_size = atoi(wxGetApp().app_config->get("tab_icon_size").c_str());
-        }
-        catch (std::exception e) {}
-        if (icon_size >= 8) {
-            std::initializer_list<std::string> icon_list = { "editor_menu", "layers", "preview_menu", "cog", "spool_cog", "printer_cog" };
-            if (icon_size < 16)
-                icon_list = { "editor_menu", "layers", "preview_menu", "cog", "spool", "printer" };
-            for (std::string icon_name : icon_list) {
-                const wxBitmap& bmp = create_scaled_bitmap(icon_name, this, icon_size);
-                if (img_list == nullptr)
-                    img_list = new wxImageList(bmp.GetWidth(), bmp.GetHeight());
-                img_list->Add(bmp);
-            }
-        }
         wxPanel* first_panel = new wxPanel(m_tabpanel);
         m_tabpanel->InsertPage(0, first_panel, _L("3D view"));
         m_tabpanel->InsertPage(1, new wxPanel(m_tabpanel), _L("Sliced preview"));
         m_tabpanel->InsertPage(2, new wxPanel(m_tabpanel), _L("Gcode preview"));
         if (m_tabpanel->GetPageCount() == 6) {
-            m_tabpanel->AssignImageList(img_list);
             m_tabpanel->GetPage(0)->SetSizer(new wxBoxSizer(wxVERTICAL));
             m_tabpanel->GetPage(1)->SetSizer(new wxBoxSizer(wxVERTICAL));
             m_tabpanel->GetPage(2)->SetSizer(new wxBoxSizer(wxVERTICAL));
-            if (icon_size >= 8)
-            {
-                m_tabpanel->SetPageImage(0, 0);
-                m_tabpanel->SetPageImage(1, 1);
-                m_tabpanel->SetPageImage(2, 2);
-                m_tabpanel->SetPageImage(3, 3);
-                m_tabpanel->SetPageImage(4, 4);
-                m_tabpanel->SetPageImage(5, 5);
-            }
+            update_icon();
         }
         m_plater->Reparent(first_panel);
         first_panel->GetSizer()->Add(m_plater, 1, wxEXPAND);
@@ -460,6 +468,7 @@ void MainFrame::update_layout()
         m_main_sizer->Add(m_tabpanel, 1, wxEXPAND);
         m_plater_page = new wxPanel(m_tabpanel);
         m_tabpanel->InsertPage(0, m_plater_page, _L("Plater")); // empty panel just for Plater tab */
+        update_icon();
         m_plater->Show();
         break;
     }
@@ -468,6 +477,7 @@ void MainFrame::update_layout()
         m_main_sizer->Add(m_plater, 1, wxEXPAND);
         m_tabpanel->Reparent(&m_settings_dialog);
         m_settings_dialog.GetSizer()->Add(m_tabpanel, 1, wxEXPAND);
+        update_icon();
         m_tabpanel->Show();
         m_plater->Show();
         break;
@@ -602,6 +612,20 @@ void MainFrame::shutdown()
     wxGetApp().plater_ = nullptr;
 }
 
+void MainFrame::change_tab(Tab* old_tab, Tab* new_tab)
+{
+    int page_id = m_tabpanel->FindPage(old_tab);
+    if (page_id >= 0 && page_id < m_tabpanel->GetPageCount()) {
+        m_tabpanel->GetPage(page_id)->Show(false);
+        m_tabpanel->RemovePage(page_id);
+    }
+    m_tabpanel->InsertPage(page_id, new_tab, new_tab->title());
+    #ifdef __linux__ // the tabs apparently need to be explicitly shown on Linux (pull request #1563)
+        m_tabpanel->GetPage(page_id)->Show(true);
+    #endif // __linux__
+    MainFrame::update_icon();
+}
+
 void MainFrame::update_title()
 {
     wxString title = wxEmptyString;
@@ -653,6 +677,25 @@ void MainFrame::init_tabpanel()
     m_tabpanel->Hide();
     m_settings_dialog.set_tabpanel(m_tabpanel);
 
+    // icons for m_tabpanel tabs
+    wxImageList* img_list = nullptr;
+    int icon_size = 0;
+    try {
+        icon_size = atoi(wxGetApp().app_config->get("tab_icon_size").c_str());
+    }
+    catch (std::exception e) {}
+    if (icon_size >= 8) {
+        std::vector<std::string> icon_list =  { "editor_menu", "layers", "preview_menu", "cog", "spool_cog",  "printer_cog",  "resin_cog",    "sla_printer_cog" };
+        if (icon_size < 16)
+            icon_list =                       { "editor_menu", "layers", "preview_menu", "cog", "spool",      "printer",      "resin",        "sla_printer" };
+        for (std::string icon_name : icon_list) {
+            const wxBitmap& bmp = create_scaled_bitmap(icon_name, this, icon_size);
+            if (img_list == nullptr)
+                img_list = new wxImageList(bmp.GetWidth(), bmp.GetHeight());
+            img_list->Add(bmp);
+        }
+    }
+    m_tabpanel->AssignImageList(img_list);
 
     m_tabpanel->Bind(wxEVT_NOTEBOOK_PAGE_CHANGED, [this](wxEvent&) {
         if (m_tabpanel_stop_event)
@@ -1224,7 +1267,7 @@ void MainFrame::init_menubar_as_editor()
             [this](wxCommandEvent&) { if (m_plater) m_plater->add_model(true); }, "import_plater", nullptr,
             [this](){return m_plater != nullptr; }, this);
         
-        append_menu_item(import_menu, wxID_ANY, _L("Import SL1 archive") + dots, _L("Load an SL1 archive"),
+        append_menu_item(import_menu, wxID_ANY, _L("Import SL1 / SL1S archive") + dots, _L("Load an SL1 / Sl1S archive"),
             [this](wxCommandEvent&) { if (m_plater) m_plater->import_sl1_archive(); }, "import_plater", nullptr,
             [this](){return m_plater != nullptr; }, this);    
     
@@ -1232,12 +1275,18 @@ void MainFrame::init_menubar_as_editor()
         append_menu_item(import_menu, wxID_ANY, _L("Import &Config") + dots + "\tCtrl+L", _L("Load exported configuration file"),
             [this](wxCommandEvent&) { load_config_file(); }, "import_config", nullptr,
             []() {return true; }, this);
+        append_menu_item(import_menu, wxID_ANY, _L("Import Prusa Config") + dots, _L("Load configuration file exported from PrusaSlicer"),
+            [this](wxCommandEvent&) { load_config_file(true); }, "import_prusa_config", nullptr,
+            []() {return true; }, this);
         append_menu_item(import_menu, wxID_ANY, _L("Import Config from &project") + dots +"\tCtrl+Alt+L", _L("Load configuration from project file"),
             [this](wxCommandEvent&) { if (m_plater) m_plater->extract_config_from_project(); }, "import_config", nullptr,
             []() {return true; }, this);
         import_menu->AppendSeparator();
         append_menu_item(import_menu, wxID_ANY, _L("Import Config &Bundle") + dots, _L("Load presets from a bundle"),
             [this](wxCommandEvent&) { load_configbundle(); }, "import_config_bundle", nullptr,
+            []() {return true; }, this);
+        append_menu_item(import_menu, wxID_ANY, _L("Import Prusa Config Bundle") + dots, _L("Load presets from a PrusaSlicer bundle"),
+            [this](wxCommandEvent&) { load_configbundle(wxEmptyString, true); }, "import_prusa_config_bundle", nullptr,
             []() {return true; }, this);
         append_submenu(fileMenu, import_menu, wxID_ANY, _L("&Import"), "");
 
@@ -1279,7 +1328,7 @@ void MainFrame::init_menubar_as_editor()
             []() {return true; }, this);
         export_menu->AppendSeparator();
         append_menu_item(export_menu, wxID_ANY, _L("Export to &Prusa Config") + dots, _L("Export current configuration to file, with only settings compatible with PrusaSlicer"),
-            [this](wxCommandEvent&) { export_config(true); }, "export_config", nullptr,
+            [this](wxCommandEvent&) { export_config(true); }, "export_prusa_config", nullptr,
             []() {return true; }, this);
         append_submenu(fileMenu, export_menu, wxID_ANY, _L("&Export"), "");
 
@@ -1581,6 +1630,7 @@ void MainFrame::update_menubar()
     m_changeable_menu_items[miPrinterTab]   ->SetBitmap(create_scaled_bitmap(is_fff ? "printer" : "sla_printer"));
 }
 
+#if 0
 // To perform the "Quck Slice", "Quick Slice and Save As", "Repeat last Quick Slice" and "Slice to SVG".
 void MainFrame::quick_slice(const int qs)
 {
@@ -1654,7 +1704,7 @@ void MainFrame::quick_slice(const int qs)
         wxFileDialog dlg(this, from_u8((boost::format(_utf8(L("Save %s file as:"))) % ((qs & qsExportSVG) ? _L("SVG") : _L("G-code"))).str()),
             wxGetApp().app_config->get_last_output_dir(get_dir_name(output_file)), get_base_name(input_file), 
             qs & qsExportSVG ? file_wildcards(FT_SVG) : file_wildcards(FT_GCODE),
-            wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+            wxFD_SAVE | (wxGetApp().app_config->get_show_overwrite_dialog() ? wxFD_OVERWRITE_PROMPT : 0));
         if (dlg.ShowModal() != wxID_OK)
             return;
         output_file = dlg.GetPath();
@@ -1665,7 +1715,7 @@ void MainFrame::quick_slice(const int qs)
     else if (qs & qsExportPNG) {
         wxFileDialog dlg(this, _L("Save zip file as:"),
             wxGetApp().app_config->get_last_output_dir(get_dir_name(output_file)),
-            get_base_name(output_file), "*.sl1", wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+            get_base_name(output_file), "*.sl1", wxFD_SAVE | (wxGetApp().app_config->get_show_overwrite_dialog() ? wxFD_OVERWRITE_PROMPT : 0));
         if (dlg.ShowModal() != wxID_OK)
             return;
         output_file = dlg.GetPath();
@@ -1703,6 +1753,7 @@ void MainFrame::quick_slice(const int qs)
 //     };
 //     Slic3r::GUI::catch_error(this, []() { if (m_progress_dialog) m_progress_dialog->Destroy(); });
 }
+#endif
 
 void MainFrame::reslice_now()
 {
@@ -1726,7 +1777,7 @@ void MainFrame::repair_stl()
     {
         wxFileDialog dlg( this, L("Save OBJ file (less prone to coordinate errors than STL) as:"),
                                         get_dir_name(output_file), get_base_name(output_file, ".obj"),
-                                        file_wildcards(FT_OBJ), wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+                                        file_wildcards(FT_OBJ), wxFD_SAVE | (wxGetApp().app_config->get_show_overwrite_dialog() ? wxFD_OVERWRITE_PROMPT : 0));
         if (dlg.ShowModal() != wxID_OK)
             return;
         output_file = dlg.GetPath();
@@ -1765,7 +1816,7 @@ void MainFrame::export_config(bool to_prusa)
 }
 
 // Load a config file containing a Print, Filament & Printer preset.
-void MainFrame::load_config_file()
+void MainFrame::load_config_file(bool from_prusa)
 {
         if (!wxGetApp().check_unsaved_changes())
             return;
@@ -1775,17 +1826,19 @@ void MainFrame::load_config_file()
 	wxString file;
     if (dlg.ShowModal() == wxID_OK)
         file = dlg.GetPath();
-    if (! file.IsEmpty() && this->load_config_file(file.ToUTF8().data())) {
+    if (! file.IsEmpty() && this->load_config_file(file.ToUTF8().data(), from_prusa)) {
         wxGetApp().app_config->update_config_dir(get_dir_name(file));
         m_last_config = file;
     }
 }
 
 // Load a config file containing a Print, Filament & Printer preset from command line.
-bool MainFrame::load_config_file(const std::string &path)
+bool MainFrame::load_config_file(const std::string &path, bool from_prusa)
 {
     try {
-        wxGetApp().preset_bundle->load_config_file(path); 
+        ConfigSubstitutions config_substitutions = wxGetApp().preset_bundle->load_config_file(path, ForwardCompatibilitySubstitutionRule::Enable, from_prusa);
+        if (!config_substitutions.empty())
+            show_substitutions_info(config_substitutions, path);
     } catch (const std::exception& ex) {
         show_error(this, ex.what());
         return false;
@@ -1826,7 +1879,7 @@ void MainFrame::export_configbundle(bool export_physical_printers /*= false*/)
 // Loading a config bundle with an external file name used to be used
 // to auto - install a config bundle on a fresh user account,
 // but that behavior was not documented and likely buggy.
-void MainFrame::load_configbundle(wxString file/* = wxEmptyString, const bool reset_user_profile*/)
+void MainFrame::load_configbundle(wxString file/* = wxEmptyString*/, bool from_prusa/* = false*/)
 {
     if (!wxGetApp().check_unsaved_changes())
         return;
@@ -1841,13 +1894,22 @@ void MainFrame::load_configbundle(wxString file/* = wxEmptyString, const bool re
 
     wxGetApp().app_config->update_config_dir(get_dir_name(file));
 
-    auto presets_imported = 0;
+    size_t presets_imported = 0;
+    PresetsConfigSubstitutions config_substitutions;
     try {
-        presets_imported = wxGetApp().preset_bundle->load_configbundle(file.ToUTF8().data());
+        PresetBundle::LoadConfigBundleAttributes lcba{ PresetBundle::LoadConfigBundleAttribute::SaveImported };
+        // Report all substitutions.
+        std::tie(config_substitutions, presets_imported) = wxGetApp().preset_bundle->load_configbundle(
+            file.ToUTF8().data(), 
+            (from_prusa ? lcba | PresetBundle::LoadConfigBundleAttribute::ConvertFromPrusa : lcba),
+            ForwardCompatibilitySubstitutionRule::Enable);
     } catch (const std::exception &ex) {
         show_error(this, ex.what());
         return;
     }
+
+    if (! config_substitutions.empty())
+        show_substitutions_info(config_substitutions);
 
     // Load the currently selected preset into the GUI, update the preset selection box.
 	wxGetApp().load_current_presets();
@@ -1900,11 +1962,11 @@ void MainFrame::select_tab(Tab* tab)
         return;
     ETabType tab_type = ETabType::LastSettings;
     switch (tab->type()) {
-    case Preset::Type::TYPE_FILAMENT:
+    case Preset::Type::TYPE_FFF_FILAMENT:
     case Preset::Type::TYPE_SLA_MATERIAL:
         tab_type = ETabType::FilamentSettings;
         break;
-    case Preset::Type::TYPE_PRINT:
+    case Preset::Type::TYPE_FFF_PRINT:
     case Preset::Type::TYPE_SLA_PRINT:
         tab_type = ETabType::PrintSettings;
         break;
@@ -1964,7 +2026,7 @@ MainFrame::ETabType MainFrame::selected_tab() const
             return ETabType((uint8_t)ETabType::PrintSettings + m_tabpanel->GetSelection() - 1);
         }
     } else if (m_layout == ESettingsLayout::Dlg) {
-        if (!m_main_sizer->IsShown(m_tabpanel)) {
+        if (!m_settings_dialog.GetSizer()->IsShown(m_tabpanel)) {
             if (m_plater->is_view3D_shown()) {
                 return ETabType::Plater3D;
             } else {

@@ -31,10 +31,10 @@ namespace Search {
 static char marker_by_type(Preset::Type type, PrinterTechnology pt)
 {
     switch(type) {
-    case Preset::TYPE_PRINT:
+    case Preset::TYPE_FFF_PRINT:
     case Preset::TYPE_SLA_PRINT:
         return ImGui::PrintIconMarker;
-    case Preset::TYPE_FILAMENT:
+    case Preset::TYPE_FFF_FILAMENT:
         return ImGui::FilamentIconMarker;
     case Preset::TYPE_SLA_MATERIAL:
         return ImGui::MaterialIconMarker;
@@ -63,9 +63,20 @@ void change_opt_key(std::string& opt_key, DynamicPrintConfig* config, int& cnt)
         opt_key += "#" + std::to_string(0);
 }
 
+void change_opt_keyFoP(std::string& opt_key, DynamicPrintConfig* config, int& cnt)
+{
+    ConfigOptionFloatsOrPercents* opt_cur = static_cast<ConfigOptionFloatsOrPercents*>(config->option(opt_key));
+    cnt = opt_cur->values.size();
+    return;
+
+    if (opt_cur->values.size() > 0)
+        opt_key += "#" + std::to_string(0);
+}
+
 void OptionsSearcher::append_options(DynamicPrintConfig* config, Preset::Type type, ConfigOptionMode mode)
 {
-    auto emplace = [this, type](const std::string opt_key, const wxString& label)
+    const ConfigDef* defs = config->def();
+    auto emplace = [this, type, defs](const std::string opt_key, const wxString& label, const ConfigOptionDef& opt)
     {
         const GroupAndCategory& gc = groups_and_categories[opt_key];
         if (gc.group.IsEmpty() || gc.category.IsEmpty())
@@ -83,7 +94,8 @@ void OptionsSearcher::append_options(DynamicPrintConfig* config, Preset::Type ty
             options.emplace_back(Option{ boost::nowide::widen(opt_key), type,
                                         (label + suffix).ToStdWstring(), (_(label) + suffix_local).ToStdWstring(),
                                         gc.group.ToStdWstring(), _(gc.group).ToStdWstring(),
-                                        gc.category.ToStdWstring(), GUI::Tab::translate_category(gc.category, type).ToStdWstring() });
+                                        gc.category.ToStdWstring(), GUI::Tab::translate_category(gc.category, type).ToStdWstring() ,
+                                        wxString(opt.tooltip).ToStdWstring(), (_(opt.tooltip)).ToStdWstring() });
     };
 
     for (std::string opt_key : config->keys())
@@ -102,6 +114,8 @@ void OptionsSearcher::append_options(DynamicPrintConfig* config, Preset::Type ty
             case coFloats:	change_opt_key<ConfigOptionFloats	>(opt_key, config, cnt);	break;
             case coStrings:	change_opt_key<ConfigOptionStrings	>(opt_key, config, cnt);	break;
             case coPercents:change_opt_key<ConfigOptionPercents	>(opt_key, config, cnt);	break;
+            //case coFloatsOrPercents:change_opt_key<ConfigOptionFloatsOrPercents	>(opt_key, config, cnt);	break;
+            case coFloatsOrPercents:change_opt_keyFoP(opt_key, config, cnt);	break;
             case coPoints:	change_opt_key<ConfigOptionPoints	>(opt_key, config, cnt);	break;
             default:		break;
             }
@@ -113,11 +127,11 @@ void OptionsSearcher::append_options(DynamicPrintConfig* config, Preset::Type ty
         }
 
         if (cnt == 0)
-            emplace(opt_key, label);
+            emplace(opt_key, label, opt);
         else
             for (int i = 0; i < cnt; ++i)
                 // ! It's very important to use "#". opt_key#n is a real option key used in GroupAndCategory
-                emplace(opt_key + "#" + std::to_string(i), label); 
+                emplace(opt_key + "#" + std::to_string(i), label, opt);
     }
 }
 
@@ -207,8 +221,9 @@ bool OptionsSearcher::search(const std::string& search, bool force/* = false*/)
             out += marker_by_type(opt.type, printer_technology);
         const std::wstring* prev = nullptr;
         for (const std::wstring* const s : {
-            view_params.category ? &opt.category_local : nullptr,
-                & opt.group_local, & opt.label_local })
+            view_params.category ?  &opt.category_local : nullptr,
+            view_params.category ?  &opt.group_local : nullptr,
+                                    & opt.label_local })
             if (s != nullptr && (prev == nullptr || *prev != *s)) {
                 if (out.size() > 2)
                     out += sep;
@@ -225,8 +240,9 @@ bool OptionsSearcher::search(const std::string& search, bool force/* = false*/)
             out += marker_by_type(opt.type, printer_technology);
         const std::wstring* prev = nullptr;
         for (const std::wstring* const s : {
-            view_params.category ? &opt.category : nullptr,
-                & opt.group, & opt.label })
+            view_params.category ?  &opt.category : nullptr,
+            view_params.category ?  &opt.group : nullptr,
+                                    & opt.label })
             if (s != nullptr && (prev == nullptr || *prev != *s)) {
                 if (out.size() > 2)
                     out += sep;
@@ -238,9 +254,24 @@ bool OptionsSearcher::search(const std::string& search, bool force/* = false*/)
 
     auto get_tooltip = [this, &sep](const Option& opt)
     {
+        //add "\n" to long tooltip lines
+        std::wstring tooltip;
+        int length = 0;
+        for (int i = 0; i < opt.tooltip_local.size(); i++) {
+            if (length >= 80 && opt.tooltip_local[i] == u' ')
+                tooltip.push_back(u'\n');
+            else
+                tooltip.push_back(opt.tooltip_local[i]);
+            length++;
+            if (tooltip.back() == u'\n')
+                length = 0;
+        }
+
+
         return  marker_by_type(opt.type, printer_technology) +
-                opt.category_local + sep +
-                opt.group_local + sep + opt.label_local;
+            opt.category_local + sep +
+            opt.group_local + sep + opt.label_local +
+            "\n\n" + tooltip;
     };
 
     std::vector<uint16_t> matches, matches2;
@@ -260,24 +291,44 @@ bool OptionsSearcher::search(const std::string& search, bool force/* = false*/)
         int score = std::numeric_limits<int>::min();
         int score2;
         matches.clear();
+        
+        //search for label
         if(view_params.exact)
             strong_match(wsearch, label, score, matches);
         else
             fuzzy_match(wsearch, label, score, matches);
 
-        if ( (view_params.exact ? strong_match(wsearch, opt.opt_key, score2, matches2):fuzzy_match(wsearch, opt.opt_key, score2, matches2)) && (view_params.exact || score2 > score) ) {
-        	for (fts::pos_type &pos : matches2)
-        		pos += label.size() + 1;
-        	label += L"(" + opt.opt_key + L")";
-        	append(matches, matches2);
-        	score = std::max(score, score2);
-        }
+        //search in english label
         if (view_params.english && (view_params.exact ? strong_match(wsearch, label_english, score2, matches2) : fuzzy_match(wsearch, label_english, score2, matches2)) && score2 > score) {
         	label   = std::move(label_english);
         	matches = std::move(matches2);
         	score   = score2;
         }
-        if (score > 90/*std::numeric_limits<int>::min()*/) {
+
+        //search in opt_key
+        if ((view_params.exact ? strong_match(wsearch, opt.opt_key, score2, matches2) : fuzzy_match(wsearch, opt.opt_key, score2, matches2)) && (view_params.exact || score2 > score)) {
+            for (fts::pos_type& pos : matches2)
+                pos += label.size() + 1;
+            label += L"(" + opt.opt_key + L")";
+            append(matches, matches2);
+            score = std::max(score, score2);
+        }
+
+        //search in tooltip
+        size_t find_in_tooltip = std::wstring::npos;
+        if (score <= 90) {
+            //strong_match(wsearch, opt.tooltip_local, score2, matches2);  //Too slow
+            find_in_tooltip = opt.tooltip_local.find(wsearch);
+            if (find_in_tooltip == std::wstring::npos && view_params.english) {
+                find_in_tooltip = opt.tooltip.find(wsearch);
+            }
+        }
+        if (score > 90/*std::numeric_limits<int>::min()*/ || find_in_tooltip != std::wstring::npos) {
+            if (score <= 90) {
+                score = score > 0
+                    ? score + int( (90.-score) * std::min(1., find_in_tooltip / 300.))
+                    : int(90. * std::min(1., find_in_tooltip / 300.));
+            }
 		    label = mark_string(label, matches, opt.type, printer_technology);
             label += L"  [" + std::to_wstring(score) + L"]";// add score value
 	        std::string label_u8 = into_u8(label);

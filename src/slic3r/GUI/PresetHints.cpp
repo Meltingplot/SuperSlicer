@@ -22,8 +22,10 @@ std::string PresetHints::cooling_description(const Preset &preset)
     int     max_fan_speed = preset.config.opt_int("max_fan_speed", 0);
     int     top_fan_speed = preset.config.opt_int("top_fan_speed", 0);
     int     bridge_fan_speed = preset.config.opt_int("bridge_fan_speed", 0);
+    int     bridge_internal_fan_speed = preset.config.opt_int("bridge_internal_fan_speed", 0);
     int     ext_peri_fan_speed = preset.config.opt_int("external_perimeter_fan_speed", 0);
     int     disable_fan_first_layers = preset.config.opt_int("disable_fan_first_layers", 0);
+    int     full_fan_speed_layer = preset.config.opt_int("full_fan_speed_layer", 0);
     int     slowdown_below_layer_time = preset.config.opt_int("slowdown_below_layer_time", 0);
     int     min_print_speed = int(preset.config.opt_float("min_print_speed", 0) + 0.5);
     int     max_speed_reduc = int(preset.config.opt_float("max_speed_reduction", 0));
@@ -32,9 +34,11 @@ std::string PresetHints::cooling_description(const Preset &preset)
     //for the time being, -1 shoudl eb for disabel, but it's 0 from legacy.
     if (top_fan_speed == 0) top_fan_speed = -1;
     if (bridge_fan_speed == 0) bridge_fan_speed = -1;
+    if (bridge_internal_fan_speed == 0) bridge_internal_fan_speed = -1;
     if (ext_peri_fan_speed == 0) ext_peri_fan_speed = -1;
     if (top_fan_speed == 1) top_fan_speed = 0;
     if (bridge_fan_speed == 1) bridge_fan_speed = 0;
+    if (bridge_internal_fan_speed == 1) bridge_internal_fan_speed = 0;
     if (ext_peri_fan_speed == 1) ext_peri_fan_speed = 0;
 
     //if (preset.config.opt_bool("cooling", 0)) {
@@ -50,12 +54,24 @@ std::string PresetHints::cooling_description(const Preset &preset)
             out += ", " + (boost::format(_utf8(L("at %1%%% over top fill surfaces"))) % top_fan_speed).str();
         }
         if (bridge_fan_speed >= 0 && bridge_fan_speed > min_fan_speed) {
-            out += ", " + (boost::format(_utf8(L("at %1%%% over bridges"))) % bridge_fan_speed).str();
+            if (bridge_internal_fan_speed < 0)
+                out += ", " + (boost::format(_utf8(L("at %1%%% over all bridges"))) % bridge_fan_speed).str();
+            else
+                out += ", " + (boost::format(_utf8(L("at %1%%% over bridges"))) % bridge_fan_speed).str();
+        }
+        if (bridge_internal_fan_speed >= 0){
+            if (bridge_internal_fan_speed > min_fan_speed) {
+                out += ", " + (boost::format(_utf8(L("at %1%%% over infill bridges"))) % bridge_internal_fan_speed).str();
+            } else if (bridge_fan_speed >= 0 && bridge_fan_speed > min_fan_speed) {
+                out += ", " + (boost::format(_utf8(L("at %1%%% over infill bridges"))) % min_fan_speed).str();
+            }
         }
         if (disable_fan_first_layers > 1)
             out += ", " + (boost::format(_utf8(L("except for the first %1% layers where the fan is disabled"))) % disable_fan_first_layers).str();
         else if (disable_fan_first_layers == 1)
             out += ", " + _utf8(L("except for the first layer where the fan is disabled"));
+        if(full_fan_speed_layer > disable_fan_first_layers + 1 && disable_fan_first_layers > 0)
+            out += (boost::format(_utf8(L(" and will gradually speed-up to the above speeds over %1% layers")))  % (full_fan_speed_layer - disable_fan_first_layers)).str();
         out += ".";
     } else
        out += " " + _utf8(L("will be turned off by default."));
@@ -72,20 +88,27 @@ std::string PresetHints::cooling_description(const Preset &preset)
         if (ext_peri_fan_speed > max_fan_speed) {
             out += ", " + (boost::format(_utf8(L("at %1%%% over external perimeters"))) % ext_peri_fan_speed).str();
         } else if (ext_peri_fan_speed > min_fan_speed) {
-            out += ", " + (boost::format(_utf8(L("at %1%%% over external perimeters"))) % ext_peri_fan_speed).str() + " " + L("if it's above the current computed fan speed value");
+            out += ", " + (boost::format(_utf8(L("between %1%%% %2%%% over external perimeters"))) % ext_peri_fan_speed % max_fan_speed).str();
         }
         if (top_fan_speed >= 0) {
             out += ", " + (boost::format(_utf8(L("at %1%%% over top fill surfaces"))) % top_fan_speed).str();
         }
         if (bridge_fan_speed > max_fan_speed) {
             out += ", " + (boost::format(_utf8(L("at %1%%% over bridges"))) % bridge_fan_speed).str();
-        }else if (bridge_fan_speed > min_fan_speed) {
-            out += ", " + (boost::format(_utf8(L("at %1%%% over bridges"))) % bridge_fan_speed).str() + " " + L("if it's above the current computed fan speed value");
+        } else if (bridge_fan_speed > min_fan_speed) {
+            out += ", " + (boost::format(_utf8(L("between %1%%% %2%%% over bridges"))) % bridge_fan_speed % max_fan_speed).str();
+        }
+        if (bridge_internal_fan_speed > max_fan_speed) {
+            out += ", " + (boost::format(_utf8(L("at %1%%% over infill bridges"))) % bridge_internal_fan_speed).str();
+        } else if (bridge_internal_fan_speed > min_fan_speed) {
+            out += ", " + (boost::format(_utf8(L("between %1%%% %2%%% over infill bridges"))) % bridge_internal_fan_speed % max_fan_speed).str();
         }
         if (disable_fan_first_layers > 1)
             out += " ; " + ((boost::format(_utf8(L("except for the first %1% layers where the fan is disabled"))) % disable_fan_first_layers).str());
         else if (disable_fan_first_layers == 1)
             out += " ; "+ _utf8(L("except for the first layer where the fan is disabled"));
+        if (full_fan_speed_layer > disable_fan_first_layers + 1 && disable_fan_first_layers > 0)
+            out += (boost::format(_utf8(L(" and will gradually speed-up to the above speeds over %1% layers"))) % (full_fan_speed_layer - disable_fan_first_layers)).str();
         out += ".";
     }
 
@@ -98,10 +121,13 @@ std::string PresetHints::cooling_description(const Preset &preset)
                 % max_fan_speed).str();
 
             if (disable_fan_first_layers > 1)
-                out += " (" + (boost::format(_utf8(L("except for the first %1% layers where the fan is disabled"))) % disable_fan_first_layers).str() + ")";
+                out += " (" + (boost::format(_utf8(L("except for the first %1% layers where the fan is disabled"))) % disable_fan_first_layers).str();
             else if (disable_fan_first_layers == 1)
-                out += " (" + _utf8(L("except for the first layer where the fan is disabled")) + ")";
-
+                out += " (" + _utf8(L("except for the first layer where the fan is disabled"));
+            if (full_fan_speed_layer > disable_fan_first_layers + 1 && disable_fan_first_layers > 0)
+                out += (boost::format(_utf8(L(" and will gradually speed-up to the above speeds over %1% layers"))) % (full_fan_speed_layer - disable_fan_first_layers)).str();
+            if(disable_fan_first_layers > 0)
+                out += ")";
             out += " and";
         }
             
@@ -118,6 +144,7 @@ std::string PresetHints::cooling_description(const Preset &preset)
 
     //tooltip for Depractaed values
     bridge_fan_speed = preset.config.opt_int("bridge_fan_speed", 0);
+    bridge_internal_fan_speed = preset.config.opt_int("bridge_internal_fan_speed", 0);
     ext_peri_fan_speed = preset.config.opt_int("external_perimeter_fan_speed", 0);
     top_fan_speed = preset.config.opt_int("top_fan_speed", 0);
     if (top_fan_speed == 0)
@@ -126,6 +153,8 @@ std::string PresetHints::cooling_description(const Preset &preset)
         out += "\n\n!!! 0 for the External perimeters fan speed is Deprecated, please set it to -1 to disable it !!!";
     if (bridge_fan_speed == 0)
         out += "\n\n!!! 0 for the Bridge fan speed is Deprecated, please set it to -1 to disable it !!!";
+    if (bridge_internal_fan_speed == 0)
+        out += "\n\n!!! 0 for the Infill bridge fan speed is Deprecated, please set it to -1 to disable it !!!";
 
     return out;
 }
@@ -147,9 +176,9 @@ std::string PresetHints::maximum_volumetric_flow_description(const PresetBundle 
         // The current filament preset is not active for any extruder.
         idx_extruder = -1;
 
-    const DynamicPrintConfig &print_config    = preset_bundle.prints   .get_edited_preset().config;
-    const DynamicPrintConfig &filament_config = preset_bundle.filaments.get_edited_preset().config;
-    const DynamicPrintConfig &printer_config  = preset_bundle.printers .get_edited_preset().config;
+    const DynamicPrintConfig &print_config    = preset_bundle.fff_prints.get_edited_preset().config;
+    const DynamicPrintConfig &filament_config = preset_bundle.filaments .get_edited_preset().config;
+    const DynamicPrintConfig &printer_config  = preset_bundle.printers  .get_edited_preset().config;
 
     // Current printer values.
     float  nozzle_diameter                  = (float)printer_config.opt_float("nozzle_diameter", idx_extruder);
@@ -183,7 +212,8 @@ std::string PresetHints::maximum_volumetric_flow_description(const PresetBundle 
     const auto &support_material_extrusion_width    = *print_config.option<ConfigOptionFloatOrPercent>("support_material_extrusion_width");
     const auto &top_infill_extrusion_width          = *print_config.option<ConfigOptionFloatOrPercent>("top_infill_extrusion_width");
     const auto &first_layer_speed                   = *print_config.option<ConfigOptionFloatOrPercent>("first_layer_speed");
-    const auto &first_layer_infill_speed            = *print_config.option<ConfigOptionFloatOrPercent>("first_layer_infill_speed");
+    const auto& first_layer_infill_speed            = *print_config.option<ConfigOptionFloatOrPercent>("first_layer_infill_speed");
+    const auto& first_layer_min_speed               = *print_config.option<ConfigOptionFloat>("first_layer_min_speed");
 
     // Index of an extruder assigned to a feature. If set to 0, an active extruder will be used for a multi-material print.
     // If different from idx_extruder, it will not be taken into account for this hint.
@@ -214,31 +244,50 @@ std::string PresetHints::maximum_volumetric_flow_description(const PresetBundle 
         const float                       bfr = bridging ? bridge_flow_ratio : 0.f;
         double                            max_flow = 0.;
         std::string                       max_flow_extrusion_type;
-        auto                              limit_by_first_layer_speed = [&first_layer_speed, first_layer](double speed_normal, double speed_max) {
-            if (first_layer && first_layer_speed.value > 0)
+        auto                              limit_by_first_layer_speed = [&first_layer_min_speed , &first_layer_speed, first_layer](double speed_normal, double speed_max) {
+            if (first_layer) {
+                const double base_speed = speed_normal;
                 // Apply the first layer limit.
-                speed_normal = first_layer_speed.get_abs_value(speed_normal);
+                if (first_layer_speed.value > 0)
+                    speed_normal = std::min(first_layer_speed.get_abs_value(base_speed), speed_normal);
+                speed_normal = std::max(first_layer_min_speed.value, speed_normal);
+            }
             return (speed_normal > 0.) ? speed_normal : speed_max;
         };
-        auto                              limit_infill_by_first_layer_speed = [&first_layer_infill_speed, first_layer](double speed_normal, double speed_max) {
-            if (first_layer && first_layer_infill_speed.value > 0)
+        auto                              limit_infill_by_first_layer_speed = [&first_layer_min_speed, &first_layer_infill_speed, first_layer](double speed_normal, double speed_max) {
+            if (first_layer) {
+                const double base_speed = speed_normal;
                 // Apply the first layer limit.
-                speed_normal = first_layer_infill_speed.get_abs_value(speed_normal);
+                if(first_layer_infill_speed.value > 0)
+                    speed_normal = std::min(first_layer_infill_speed.get_abs_value(base_speed), speed_normal);
+                speed_normal = std::max(first_layer_min_speed.value, speed_normal);
+            }
             return (speed_normal > 0.) ? speed_normal : speed_max;
         };
+        float filament_max_overlap = filament_config.get_computed_value("filament_max_overlap", std::max(0, idx_extruder));
         if (perimeter_extruder_active) {
-            double external_perimeter_rate = Flow::new_from_config_width(frExternalPerimeter, 
-                first_positive(first_layer_extrusion_width_ptr, external_perimeter_extrusion_width, extrusion_width), 
-                nozzle_diameter, lh, bfr).mm3_per_mm() *
+            Flow external_flow = Flow::new_from_config_width(frExternalPerimeter,
+                first_positive(first_layer_extrusion_width_ptr, external_perimeter_extrusion_width, extrusion_width),
+                nozzle_diameter, lh, 
+                std::min(filament_max_overlap, (float)print_config.opt<ConfigOptionPercent>("external_perimeter_overlap")->get_abs_value(1)),
+                bfr);
+            if (external_flow.height > external_flow.width)
+                external_flow.height = external_flow.width;
+            double external_perimeter_rate = external_flow.mm3_per_mm() *
                 (bridging ? bridge_speed : 
                     limit_by_first_layer_speed(std::max(external_perimeter_speed, small_perimeter_speed), max_print_speed));
             if (max_flow < external_perimeter_rate) {
                 max_flow = external_perimeter_rate;
                 max_flow_extrusion_type = _utf8(L("external perimeters"));
             }
-            double perimeter_rate = Flow::new_from_config_width(frPerimeter, 
-                first_positive(first_layer_extrusion_width_ptr, perimeter_extrusion_width, extrusion_width), 
-                nozzle_diameter, lh, bfr).mm3_per_mm() *
+            Flow perimeter_flow = Flow::new_from_config_width(frPerimeter,
+                first_positive(first_layer_extrusion_width_ptr, perimeter_extrusion_width, extrusion_width),
+                nozzle_diameter, lh,
+                std::min(filament_max_overlap, (float)print_config.opt<ConfigOptionPercent>("perimeter_overlap")->get_abs_value(1)),
+                bfr);
+            if (perimeter_flow.height > perimeter_flow.width)
+                perimeter_flow.height = perimeter_flow.width;
+            double perimeter_rate = perimeter_flow.mm3_per_mm() *
                 (bridging ? bridge_speed :
                     limit_by_first_layer_speed(std::max(perimeter_speed, small_perimeter_speed), max_print_speed));
             if (max_flow < perimeter_rate) {
@@ -247,27 +296,42 @@ std::string PresetHints::maximum_volumetric_flow_description(const PresetBundle 
             }
         }
         if (! bridging && infill_extruder_active) {
-            double infill_rate = Flow::new_from_config_width(frInfill, 
-                first_positive(first_layer_extrusion_width_ptr, infill_extrusion_width, extrusion_width), 
-                nozzle_diameter, lh, bfr).mm3_per_mm() * limit_infill_by_first_layer_speed(infill_speed, max_print_speed);
+            Flow infill_flow = Flow::new_from_config_width(frInfill,
+                first_positive(first_layer_extrusion_width_ptr, infill_extrusion_width, extrusion_width),
+                nozzle_diameter, lh,
+                filament_max_overlap,
+                bfr);
+            if (infill_flow.height > infill_flow.width)
+                infill_flow.height = infill_flow.width;
+            double infill_rate = infill_flow.mm3_per_mm() * limit_infill_by_first_layer_speed(infill_speed, max_print_speed);
             if (max_flow < infill_rate) {
                 max_flow = infill_rate;
                 max_flow_extrusion_type = _utf8(L("infill"));
             }
         }
         if (solid_infill_extruder_active) {
-            double solid_infill_rate = Flow::new_from_config_width(frInfill, 
-                first_positive(first_layer_extrusion_width_ptr, solid_infill_extrusion_width, extrusion_width), 
-                nozzle_diameter, lh, 0).mm3_per_mm() *
+            Flow solid_infill_flow = Flow::new_from_config_width(frInfill,
+                first_positive(first_layer_extrusion_width_ptr, solid_infill_extrusion_width, extrusion_width),
+                nozzle_diameter, lh,
+                filament_max_overlap,
+                0);
+            if (solid_infill_flow.height > solid_infill_flow.width)
+                solid_infill_flow.height = solid_infill_flow.width;
+            double solid_infill_rate = solid_infill_flow.mm3_per_mm() *
                 (bridging ? bridge_speed : limit_infill_by_first_layer_speed(solid_infill_speed, max_print_speed));
             if (max_flow < solid_infill_rate) {
                 max_flow = solid_infill_rate;
                 max_flow_extrusion_type = _utf8(L("solid infill"));
             }
             if (! bridging) {
-                double top_solid_infill_rate = Flow::new_from_config_width(frInfill, 
-                    first_positive(first_layer_extrusion_width_ptr, top_infill_extrusion_width, extrusion_width), 
-                    nozzle_diameter, lh, bfr).mm3_per_mm() * limit_infill_by_first_layer_speed(top_solid_infill_speed, max_print_speed);
+                Flow top_solid_infill_flow = Flow::new_from_config_width(frInfill,
+                    first_positive(first_layer_extrusion_width_ptr, top_infill_extrusion_width, extrusion_width),
+                    nozzle_diameter, lh,
+                    filament_max_overlap,
+                    bfr);
+                if (top_solid_infill_flow.height > top_solid_infill_flow.width)
+                    top_solid_infill_flow.height = top_solid_infill_flow.width;
+                double top_solid_infill_rate = top_solid_infill_flow.mm3_per_mm() * limit_infill_by_first_layer_speed(top_solid_infill_speed, max_print_speed);
                 if (max_flow < top_solid_infill_rate) {
                     max_flow = top_solid_infill_rate;
                     max_flow_extrusion_type = _utf8(L("top solid infill"));
@@ -275,9 +339,14 @@ std::string PresetHints::maximum_volumetric_flow_description(const PresetBundle 
             }
         }
         if (support_material_extruder_active) {
-            double support_material_rate = Flow::new_from_config_width(frSupportMaterial,
-                first_positive(first_layer_extrusion_width_ptr, support_material_extrusion_width, extrusion_width), 
-                nozzle_diameter, lh, bfr).mm3_per_mm() *
+            Flow support_material_flow = Flow::new_from_config_width(frSupportMaterial,
+                first_positive(first_layer_extrusion_width_ptr, support_material_extrusion_width, extrusion_width),
+                nozzle_diameter, lh,
+                filament_max_overlap,
+                bfr);
+            if (support_material_flow.height > support_material_flow.width)
+                support_material_flow.height = support_material_flow.width;
+            double support_material_rate = support_material_flow.mm3_per_mm() *
                 (bridging ? bridge_speed : limit_by_first_layer_speed(support_material_speed, max_print_speed));
             if (max_flow < support_material_rate) {
                 max_flow = support_material_rate;
@@ -285,9 +354,14 @@ std::string PresetHints::maximum_volumetric_flow_description(const PresetBundle 
             }
         }
         if (support_material_interface_extruder_active) {
-            double support_material_interface_rate = Flow::new_from_config_width(frSupportMaterialInterface,
+            Flow support_material_interface_flow = Flow::new_from_config_width(frSupportMaterialInterface,
                 first_positive(first_layer_extrusion_width_ptr, support_material_extrusion_width, extrusion_width),
-                nozzle_diameter, lh, bfr).mm3_per_mm() *
+                nozzle_diameter, lh,
+                filament_max_overlap,
+                bfr);
+            if (support_material_interface_flow.height > support_material_interface_flow.width)
+                support_material_interface_flow.height = support_material_interface_flow.width;
+            double support_material_interface_rate = support_material_interface_flow.mm3_per_mm() *
                 (bridging ? bridge_speed : limit_by_first_layer_speed(support_material_interface_speed, max_print_speed));
             if (max_flow < support_material_interface_rate) {
                 max_flow = support_material_interface_rate;
@@ -297,17 +371,19 @@ std::string PresetHints::maximum_volumetric_flow_description(const PresetBundle 
         //FIXME handle gap_fill_speed
         if (! out.empty())
             out += "\n";
-        out += (first_layer ? _utf8(L("First layer volumetric")) : (bridging ? _utf8(L("Bridging volumetric")) : _utf8(L("Volumetric"))));
-        out += " " + _utf8(L("flow rate is maximized")) + " ";
         bool limited_by_max_volumetric_speed = max_volumetric_speed > 0 && max_volumetric_speed < max_flow;
-        out += (limited_by_max_volumetric_speed ? 
-            _utf8(L("by the print profile maximum")) :
-            (_utf8(L("when printing"))+ " " + max_flow_extrusion_type))
-            + " " + _utf8(L("with a volumetric rate"))+ " ";
-        if (limited_by_max_volumetric_speed)
-            max_flow = max_volumetric_speed;
 
-        out += (boost::format(_utf8(L("%3.2f mm³/s at filament speed %3.2f mm/s."))) % max_flow % (max_flow / filament_crossection)).str();
+        std::string pattern = (boost::format(_u8L("%s flow rate is maximized ")) 
+            % (first_layer ? _u8L("First layer volumetric") : (bridging ? _u8L("Bridging volumetric") : _u8L("Volumetric")))).str();
+        std::string pattern2;
+        if (limited_by_max_volumetric_speed)
+            pattern2 = (boost::format(_u8L("by the print profile maximum volumetric rate of %3.2f mm³/s at filament speed %3.2f mm/s."))
+                % max_volumetric_speed % (max_volumetric_speed / filament_crossection)).str();
+        else
+            pattern2 = (boost::format(_u8L("when printing %s with a volumetric rate of %3.2f mm³/s at filament speed %3.2f mm/s."))
+                % max_flow_extrusion_type % max_flow % (max_flow / filament_crossection)).str();
+
+        out += pattern + " " + pattern2;
     }
 
  	return out;
@@ -315,7 +391,7 @@ std::string PresetHints::maximum_volumetric_flow_description(const PresetBundle 
 
 std::string PresetHints::recommended_thin_wall_thickness(const PresetBundle& preset_bundle)
 {
-    const DynamicPrintConfig& print_config = preset_bundle.prints.get_edited_preset().config;
+    const DynamicPrintConfig& print_config = preset_bundle.fff_prints.get_edited_preset().config;
     const DynamicPrintConfig& printer_config = preset_bundle.printers.get_edited_preset().config;
 
     float   layer_height = float(print_config.opt_float("layer_height"));
@@ -329,16 +405,34 @@ std::string PresetHints::recommended_thin_wall_thickness(const PresetBundle& pre
         return out;
     }
 
+    const DynamicPrintConfig& filament_config = preset_bundle.filaments.get_edited_preset().config;
+    float filament_max_overlap = filament_config.get_computed_value("filament_max_overlap", 0);
     Flow    external_perimeter_flow = Flow::new_from_config_width(
         frExternalPerimeter,
         *print_config.opt<ConfigOptionFloatOrPercent>("external_perimeter_extrusion_width"),
-        nozzle_diameter, layer_height, false);
+        nozzle_diameter,
+        layer_height,
+        filament_max_overlap,
+        false);
     Flow    perimeter_flow = Flow::new_from_config_width(
         frPerimeter,
         *print_config.opt<ConfigOptionFloatOrPercent>("perimeter_extrusion_width"),
-        nozzle_diameter, layer_height, false);
+        nozzle_diameter,
+        layer_height,
+        filament_max_overlap,
+        false);
 
-    //set spacing
+    // failsafe for too big height
+    if (external_perimeter_flow.height > external_perimeter_flow.width)
+        external_perimeter_flow.height = external_perimeter_flow.width;
+    if (perimeter_flow.height > perimeter_flow.width)
+        perimeter_flow.height = perimeter_flow.width;
+    if (external_perimeter_flow.height != perimeter_flow.height) {
+        perimeter_flow.height = std::min(perimeter_flow.height, external_perimeter_flow.height);
+        external_perimeter_flow.height = perimeter_flow.height;
+    }
+
+    // set spacing
     external_perimeter_flow.spacing_ratio = print_config.opt<ConfigOptionPercent>("external_perimeter_overlap")->get_abs_value(1);
     perimeter_flow.spacing_ratio = print_config.opt<ConfigOptionPercent>("perimeter_overlap")->get_abs_value(1);
 
@@ -363,7 +457,7 @@ std::string PresetHints::recommended_thin_wall_thickness(const PresetBundle& pre
 
 std::string PresetHints::recommended_extrusion_width(const PresetBundle& preset_bundle)
 {
-    const DynamicPrintConfig& print_config = preset_bundle.prints.get_edited_preset().config;
+    const DynamicPrintConfig& print_config = preset_bundle.fff_prints.get_edited_preset().config;
     const DynamicPrintConfig& printer_config = preset_bundle.printers.get_edited_preset().config;
 
     int nb_nozzles = printer_config.option<ConfigOptionFloats>("nozzle_diameter")->values.size();
@@ -376,8 +470,10 @@ std::string PresetHints::recommended_extrusion_width(const PresetBundle& preset_
 
     std::string out;
 
-    Flow first_layer_flow = Flow::new_from_spacing(nozzle_diameter, nozzle_diameter, first_layer_height, false);
-    Flow layer_flow = Flow::new_from_spacing(nozzle_diameter, nozzle_diameter, layer_height, false);
+    const DynamicPrintConfig& filament_config = preset_bundle.filaments.get_edited_preset().config;
+    float filament_max_overlap = filament_config.get_computed_value("filament_max_overlap", 0);
+    Flow first_layer_flow = Flow::new_from_spacing(nozzle_diameter, nozzle_diameter, first_layer_height, filament_max_overlap, false);
+    Flow layer_flow = Flow::new_from_spacing(nozzle_diameter, nozzle_diameter, layer_height, filament_max_overlap, false);
 
     out += _utf8(L("Ideally, the spacing between two extrusions shouldn't be lower than the nozzle diameter. Below are the extrusion widths for a spacing equal to the nozzle diameter.\n"));
     out += (boost::format(_utf8(L("Recommended min extrusion width for the first layer (with a first layer height of %1%) is %2$.3f mm (or %3%%%)\n"))) 
@@ -394,8 +490,8 @@ std::string PresetHints::recommended_extrusion_width(const PresetBundle& preset_
 // on the active layer height.
 std::string PresetHints::top_bottom_shell_thickness_explanation(const PresetBundle &preset_bundle)
 {
-    const DynamicPrintConfig &print_config    = preset_bundle.prints   .get_edited_preset().config;
-    const DynamicPrintConfig &printer_config  = preset_bundle.printers .get_edited_preset().config;
+    const DynamicPrintConfig &print_config    = preset_bundle.fff_prints.get_edited_preset().config;
+    const DynamicPrintConfig &printer_config  = preset_bundle.printers  .get_edited_preset().config;
 
     std::string out;
 
@@ -408,7 +504,7 @@ std::string PresetHints::top_bottom_shell_thickness_explanation(const PresetBund
     double  layer_height                    = print_config.opt_float("layer_height");
     bool    variable_layer_height			= printer_config.opt_bool("variable_layer_height");
     //FIXME the following line takes into account the 1st extruder only.
-    double  min_layer_height				= variable_layer_height ? Slicing::min_layer_height_from_nozzle(printer_config, 1) : layer_height;
+    double  min_layer_height				= variable_layer_height ? Slicing::min_layer_height_from_nozzle(printer_config, 0) : layer_height;
 
 	if (layer_height <= 0.f) {
 		out += _utf8(L("Top / bottom shell thickness hint: Not available due to invalid layer height."));

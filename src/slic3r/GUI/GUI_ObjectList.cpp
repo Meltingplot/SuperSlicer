@@ -1495,9 +1495,7 @@ void ObjectList::get_settings_choice(const wxString& category_name)
     for (auto sel : selections)
         selected_options.push_back((*settings_list)[sel].first);
 
-    const DynamicPrintConfig& from_config = printer_technology() == ptFFF ? 
-                                            wxGetApp().preset_bundle->prints.get_edited_preset().config : 
-                                            wxGetApp().preset_bundle->sla_prints.get_edited_preset().config;
+    const DynamicPrintConfig& from_config = wxGetApp().preset_bundle->prints(printer_technology()).get_edited_preset().config;
 
     for (auto& setting : (*settings_list))
     {
@@ -1562,7 +1560,7 @@ void ObjectList::get_freq_settings_choice(const wxString& bundle_name)
                                                           _(L("Add Settings Bundle for Object"));
     take_snapshot(snapshot_text);
 
-    const DynamicPrintConfig& from_config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    const DynamicPrintConfig& from_config = wxGetApp().preset_bundle->prints(printer_technology()).get_edited_preset().config;
     for (auto& opt_key : options)
     {
         if (find(opt_keys.begin(), opt_keys.end(), opt_key) == opt_keys.end()) {
@@ -2830,7 +2828,7 @@ DynamicPrintConfig ObjectList::get_default_layer_config(const int obj_idx)
     DynamicPrintConfig config;
     coordf_t layer_height = object(obj_idx)->config.has("layer_height") ? 
                             object(obj_idx)->config.opt_float("layer_height") : 
-                            wxGetApp().preset_bundle->prints.get_edited_preset().config.opt_float("layer_height");
+                            wxGetApp().preset_bundle->prints(printer_technology()).get_edited_preset().config.opt_float("layer_height");
     config.set_key_value("layer_height",new ConfigOptionFloat(layer_height));
     config.set_key_value("extruder",    new ConfigOptionInt(0));
 
@@ -3403,14 +3401,14 @@ void ObjectList::del_layer_range(const t_layer_height_range& range)
 static double get_min_layer_height(const int extruder_idx)
 {
     const DynamicPrintConfig& config = wxGetApp().preset_bundle->printers.get_edited_preset().config;
-    return config.opt_float("min_layer_height", std::max(0, extruder_idx - 1));
+    return config.get_computed_value("min_layer_height", std::max(0, extruder_idx - 1));
 }
 
 static double get_max_layer_height(const int extruder_idx)
 {
     const DynamicPrintConfig& config = wxGetApp().preset_bundle->printers.get_edited_preset().config;
     int extruder_idx_zero_based = std::max(0, extruder_idx - 1);
-    double max_layer_height = config.opt_float("max_layer_height", extruder_idx_zero_based);
+    double max_layer_height = config.get_computed_value("max_layer_height", extruder_idx_zero_based);
 
     // In case max_layer_height is set to zero, it should default to 75 % of nozzle diameter:
     if (max_layer_height < EPSILON)
@@ -4176,9 +4174,9 @@ void ObjectList::change_part_type()
         }
     }
 
-    const wxString names[] = { _(L("Part")), _(L("Modifier")), _(L("Support Enforcer")), _(L("Support Blocker")) };
+    const wxString names[] = { _L("Part"), _L("Modifier"), _L("Support Enforcer"), _L("Support Blocker"), _L("Seam Position") };
     
-    auto new_type = ModelVolumeType(wxGetSingleChoiceIndex(_(L("Type:")), _(L("Select type of part")), wxArrayString(4, names), int(type)));
+    auto new_type = ModelVolumeType(wxGetSingleChoiceIndex(_(L("Type:")), _(L("Select type of part")), wxArrayString(5, names), int(type)));
 
 	if (new_type == type || new_type == ModelVolumeType::INVALID)
         return;
