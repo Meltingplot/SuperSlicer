@@ -16,6 +16,8 @@
 
 #include "libslic3r.h"
 
+#include <ctime>
+
 namespace Slic3r {
 
 class Print;
@@ -252,6 +254,7 @@ private:
     void clip_fill_surfaces();
     void tag_under_bridge();
     void discover_horizontal_shells();
+    void clean_surfaces();
     void combine_infill();
     void _generate_support_material();
     std::pair<FillAdaptive::OctreePtr, FillAdaptive::OctreePtr> prepare_adaptive_infill_data();
@@ -477,6 +480,8 @@ public:
 
     const PrintStatistics&      print_statistics() const { return m_print_statistics; }
     PrintStatistics&            print_statistics() { return m_print_statistics; }
+    std::time_t                 timestamp_last_change() const { return m_timestamp_last_change; }
+
 
     // Wipe tower support.
     bool                        has_wipe_tower() const;
@@ -548,6 +553,8 @@ private:
 
     // Estimated print time, filament consumed.
     PrintStatistics                         m_print_statistics;
+    // tiem of last change, to see if the gui need to be updated
+    std::time_t                             m_timestamp_last_change;
 
     // To allow GCode to set the Print's GCodeExport step status.
     friend class GCode;

@@ -17,7 +17,9 @@
 #include <bitset>
 
 //unofficial linux lib
-//#include <spnav.h>
+#ifdef HAVE_SPNAV
+#include <spnav.h>
+#endif
 
 // WARN: If updating these lists, please also update resources/udev/90-3dconnexion.rules
 
@@ -66,7 +68,7 @@ void update_maximum(std::atomic<T>& maximum_value, T const& value) noexcept
 
 void Mouse3DController::State::append_translation(const Vec3d& translation, size_t input_queue_max_size)
 {
-	tbb::mutex::scoped_lock lock(m_input_queue_mutex);
+	std::scoped_lock lock(m_input_queue_mutex);
     while (m_input_queue.size() >= input_queue_max_size)
         m_input_queue.pop_front();
     m_input_queue.emplace_back(QueueItem::translation(translation));
@@ -77,7 +79,7 @@ void Mouse3DController::State::append_translation(const Vec3d& translation, size
 
 void Mouse3DController::State::append_rotation(const Vec3f& rotation, size_t input_queue_max_size)
 {
-	tbb::mutex::scoped_lock lock(m_input_queue_mutex);
+	std::scoped_lock lock(m_input_queue_mutex);
     while (m_input_queue.size() >= input_queue_max_size)
         m_input_queue.pop_front();
     m_input_queue.emplace_back(QueueItem::rotation(rotation.cast<double>()));
@@ -92,7 +94,7 @@ void Mouse3DController::State::append_rotation(const Vec3f& rotation, size_t inp
 
 void Mouse3DController::State::append_button(unsigned int id, size_t /* input_queue_max_size */)
 {
-	tbb::mutex::scoped_lock lock(m_input_queue_mutex);
+	std::scoped_lock lock(m_input_queue_mutex);
     m_input_queue.emplace_back(QueueItem::buttons(id));
 #if ENABLE_3DCONNEXION_DEVICES_DEBUG_OUTPUT
     update_maximum(input_queue_max_size_achieved, m_input_queue.size());
@@ -277,7 +279,7 @@ void Mouse3DController::device_attached(const std::string &device)
 #if ENABLE_CTRL_M_ON_WINDOWS
             m_device_str = format_device_string(vid, pid);
             if (auto it_params = m_params_by_device.find(m_device_str); it_params != m_params_by_device.end()) {
-                tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+                std::scoped_lock lock(m_params_ui_mutex);
                 m_params = m_params_ui = it_params->second;
             }
             else
@@ -295,7 +297,7 @@ void Mouse3DController::device_detached(const std::string& device)
     int pid = 0;
     if (sscanf(device.c_str(), "\\\\?\\HID#VID_%x&PID_%x&", &vid, &pid) == 2) {
         if (std::find(_3DCONNEXION_VENDORS.begin(), _3DCONNEXION_VENDORS.end(), vid) != _3DCONNEXION_VENDORS.end()) {
-            tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+            std::scoped_lock lock(m_params_ui_mutex);
             m_params_by_device[format_device_string(vid, pid)] = m_params_ui;
         }
     }
@@ -307,7 +309,7 @@ void Mouse3DController::device_detached(const std::string& device)
 // Filter out mouse scroll events produced by the 3DConnexion driver.
 bool Mouse3DController::State::process_mouse_wheel()
 {
-	tbb::mutex::scoped_lock lock(m_input_queue_mutex);
+	std::scoped_lock lock(m_input_queue_mutex);
 	if (m_mouse_wheel_counter == 0)
     	// No 3DConnexion rotation has been captured since the last mouse scroll event.
         return false;
@@ -329,7 +331,7 @@ bool Mouse3DController::State::apply(const Mouse3DController::Params &params, Ca
     std::deque<QueueItem> input_queue;
     {
     	// Atomically move m_input_queue to input_queue.
-    	tbb::mutex::scoped_lock lock(m_input_queue_mutex);
+    	std::scoped_lock lock(m_input_queue_mutex);
     	input_queue = std::move(m_input_queue);
         m_input_queue.clear();
     }
@@ -418,7 +420,7 @@ bool Mouse3DController::apply(Camera& camera)
 #if ENABLE_CTRL_M_ON_WINDOWS
 #ifdef _WIN32
     {
-        tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+        std::scoped_lock lock(m_params_ui_mutex);
         if (m_params_ui_changed) {
             m_params = m_params_ui;
             m_params_ui_changed = false;
@@ -447,7 +449,7 @@ void Mouse3DController::render_settings_dialog(GLCanvas3D& canvas) const
     Params params_copy;
     bool   params_changed = false;
     {
-    	tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+    	std::scoped_lock lock(m_params_ui_mutex);
     	params_copy = m_params_ui;
     }
 
@@ -565,7 +567,7 @@ void Mouse3DController::render_settings_dialog(GLCanvas3D& canvas) const
 
     if (params_changed) {
         // Synchronize front end parameters to back end.
-    	tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+    	std::scoped_lock lock(m_params_ui_mutex);
         auto pthis = const_cast<Mouse3DController*>(this);
 #if ENABLE_3DCONNEXION_DEVICES_DEBUG_OUTPUT
         if (params_copy.input_queue_max_size != params_copy.input_queue_max_size)
@@ -586,7 +588,7 @@ void Mouse3DController::connected(std::string device_name)
 	m_device_str = device_name;
     // Copy the parameters for m_device_str into the current parameters.
     if (auto it_params = m_params_by_device.find(m_device_str); it_params != m_params_by_device.end()) {
-    	tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+    	std::scoped_lock lock(m_params_ui_mutex);
     	m_params = m_params_ui = it_params->second;
     }
     m_connected = true;
@@ -597,7 +599,7 @@ void Mouse3DController::disconnected()
     // Copy the current parameters for m_device_str into the parameter database.
     assert(m_connected == ! m_device_str.empty());
     if (m_connected) {
-        tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+        std::scoped_lock lock(m_params_ui_mutex);
         m_params_by_device[m_device_str] = m_params_ui;
 	    m_device_str.clear();
 	    m_connected = false;
@@ -621,7 +623,7 @@ bool Mouse3DController::handle_input(const DataPacketAxis& packet)
     {
     	// Synchronize parameters between the UI thread and the background thread.
     	//FIXME is this necessary on OSX? Are these notifications triggered from the main thread or from a worker thread?
-    	tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+    	std::scoped_lock lock(m_params_ui_mutex);
     	if (m_params_ui_changed) {
     		m_params = m_params_ui;
     		m_params_ui_changed = false;
@@ -709,6 +711,31 @@ void Mouse3DController::shutdown()
 // Main routine of the worker thread.
 void Mouse3DController::run()
 {
+#ifdef HAVE_SPNAV
+    if (spnav_open() == -1) {
+        // Give up.
+        BOOST_LOG_TRIVIAL(error) << "Unable to open connection to spacenavd";
+        return;
+	}
+    m_connected = true;
+
+    for (;;) {
+        {
+            std::scoped_lock lock(m_params_ui_mutex);
+            if (m_stop)
+                break;
+            if (m_params_ui_changed) {
+                m_params = m_params_ui;
+                m_params_ui_changed = false;
+            }
+        }
+        this->collect_input();
+    }
+
+    m_connected = false;
+    // Finalize the spnav library
+    spnav_close();
+#else
     // Initialize the hidapi library
     int res = hid_init();
     if (res != 0) {
@@ -733,7 +760,7 @@ void Mouse3DController::run()
 
     for (;;) {
         {
-        	tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+        	std::scoped_lock lock(m_params_ui_mutex);
         	if (m_stop)
         		break;
         	if (m_params_ui_changed) {
@@ -753,6 +780,7 @@ void Mouse3DController::run()
 
     // Finalize the hidapi library
     hid_exit();
+#endif
 }
 
 bool Mouse3DController::connect_device()
@@ -998,7 +1026,7 @@ bool Mouse3DController::connect_device()
 #endif // ENABLE_3DCONNEXION_DEVICES_DEBUG_OUTPUT
         // Copy the parameters for m_device_str into the current parameters.
         if (auto it_params = m_params_by_device.find(m_device_str); it_params != m_params_by_device.end()) {
-	    	tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+	    	std::scoped_lock lock(m_params_ui_mutex);
 	    	m_params = m_params_ui = it_params->second;
 	    }
     }
@@ -1023,7 +1051,7 @@ void Mouse3DController::disconnect_device()
 	    BOOST_LOG_TRIVIAL(info) << "Disconnected device: " << m_device_str;
         // Copy the current parameters for m_device_str into the parameter database.
         {
-	        tbb::mutex::scoped_lock lock(m_params_ui_mutex);
+	        std::scoped_lock lock(m_params_ui_mutex);
 	        m_params_by_device[m_device_str] = m_params_ui;
 	    }
 	    m_device_str.clear();
@@ -1042,8 +1070,51 @@ void Mouse3DController::disconnect_device()
     }
 }
 
+// Convert a signed 16bit word from a 3DConnexion mouse HID packet into a double coordinate, apply a dead zone.
+static double convert_spnav_input(int value)
+{
+    return (double)value/100;
+}
+
 void Mouse3DController::collect_input()
 {
+#ifdef HAVE_SPNAV
+    // Read packet, block maximum 100 ms. That means when closing the application, closing the application will be delayed by 100 ms.
+    int fd = spnav_fd();
+
+    if (fd != -1) {
+        fd_set fds;
+        struct timeval tv = {.tv_sec = 0, .tv_usec = 100000};
+
+        FD_ZERO(&fds);
+        FD_SET(fd, &fds);
+        if (select(fd + 1, &fds, NULL, NULL, &tv) == 1) {
+            spnav_event ev = {};
+            switch (spnav_poll_event(&ev)) {
+                case SPNAV_EVENT_MOTION: {
+                    Vec3d translation(-convert_spnav_input(ev.motion.x), convert_spnav_input(ev.motion.y), -convert_spnav_input(ev.motion.z));
+                    if (!translation.isApprox(Vec3d::Zero())) {
+std::cout << "Motion: X: " << ev.motion.x << ", Y: " << ev.motion.y << ", Z: " << ev.motion.z << std::endl;
+                        m_state.append_translation(translation, m_params.input_queue_max_size);
+                    }
+                    Vec3f rotation(convert_spnav_input(ev.motion.rx), convert_spnav_input(ev.motion.ry), -convert_spnav_input(ev.motion.rz));
+                    if (!rotation.isApprox(Vec3f::Zero())) {
+std::cout << "Motion: rX: " << ev.motion.rx << ", rY: " << ev.motion.ry << ", rZ: " << ev.motion.rz << std::endl;
+                        m_state.append_rotation(rotation, m_params.input_queue_max_size);
+                    }
+                    break;
+                }
+                case SPNAV_EVENT_BUTTON:
+                    if (ev.button.press)
+                        m_state.append_button((unsigned int)ev.button.bnum, m_params.input_queue_max_size);
+                    break;
+            }
+            wxGetApp().plater()->set_current_canvas_as_dirty();
+            // ask for an idle event to update 3D scene
+            wxWakeUpIdle();
+        }
+    }
+#else
     DataPacketRaw packet = { 0 };
     // Read packet, block maximum 100 ms. That means when closing the application, closing the application will be delayed by 100 ms.
     int res = hid_read_timeout(m_device, packet.data(), packet.size(), 100);
@@ -1052,6 +1123,7 @@ void Mouse3DController::collect_input()
         this->disconnect_device();
     } else
 		this->handle_input(packet, res, m_params, m_state);
+#endif
 }
 
 #ifdef _WIN32
