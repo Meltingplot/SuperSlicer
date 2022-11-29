@@ -77,6 +77,18 @@ double Tool::unretract()
     return dE;
 }
 
+double Tool::need_unretract() {
+    return m_retracted + m_restart_extra + m_restart_extra_toolchange != 0;
+}
+
+// Called after a M600 or somethgin like that, so you don't have to unretract, but the absolute position won't change.
+void Tool::reset_retract() {
+    m_retracted = 0.;
+    m_restart_extra = 0.;
+    if (m_restart_extra_toolchange != 0)
+        m_restart_extra_toolchange = 0.;
+}
+
 // Used filament volume in mm^3.
 double Tool::extruded_volume() const
 {

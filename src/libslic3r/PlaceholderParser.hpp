@@ -24,6 +24,7 @@ public:
 
     PlaceholderParser(const DynamicConfig *external_config = nullptr);
     
+    void clear_config() { m_config.clear(); }
     // Return a list of keys, which should be changed in m_config from rhs.
     // This contains keys, which are found in rhs, but not in m_config.
     std::vector<std::string> config_diff(const DynamicPrintConfig &rhs);
@@ -66,9 +67,11 @@ public:
     void parse_custom_variables(const ConfigOptionString& custom_variables);
     void parse_custom_variables(const ConfigOptionStrings& filament_custom_variables);
 
+    //remove custom vars and stored config
+    void reset();
 
 private:
-    void append_custom_variables(std::map<std::string, std::vector<std::string>> name2var_array, int nb_extruders);
+    void append_custom_variables(std::map<std::string, std::vector<std::string>> name2var_array, uint16_t nb_extruders);
 
 	// config has a higher priority than external_config when looking up a symbol.
     DynamicConfig 			 m_config;
