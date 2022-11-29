@@ -257,12 +257,12 @@ private:
         struct Island
         {
             struct Region {
-            	// Non-owned references to LayerRegion::perimeters::entities
+            	// Non-owned references to LayerRegion::perimeters::entities()
             	// std::vector<const ExtrusionEntity*> would be better here, but there is no way in C++ to convert from std::vector<T*> std::vector<const T*> without copying.
                 ExtrusionEntitiesPtr perimeters;
-            	// Non-owned references to LayerRegion::fills::entities
+            	// Non-owned references to LayerRegion::fills::entities()
                 ExtrusionEntitiesPtr infills;
-                // Non-owned references to LayerRegion::ironing::entities
+                // Non-owned references to LayerRegion::ironing::entities()
                 ExtrusionEntitiesPtr ironings;
 
                 std::vector<const WipingExtrusions::ExtruderPerCopy*> infills_overrides;
@@ -275,7 +275,7 @@ private:
                     IRONING,
 	            };
 
-                // Appends perimeter/infill entities and writes don't indices of those that are not to be extruder as part of perimeter/infill wiping
+                // Appends perimeter/infill entities() and writes don't indices of those that are not to be extruder as part of perimeter/infill wiping
                 void append(const Type type, const ExtrusionEntityCollection* eec, const WipingExtrusions::ExtruderPerCopy* copy_extruders);
             };
 
@@ -318,7 +318,7 @@ private:
 
     Polyline        travel_to(std::string& gcode, const Point &point, ExtrusionRole role);
     void            write_travel_to(std::string& gcode, const Polyline& travel, std::string comment);
-    bool            can_cross_perimeter(const Polyline& travel);
+    bool            can_cross_perimeter(const Polyline& travel, bool offset);
     bool            needs_retraction(const Polyline& travel, ExtrusionRole role = erNone, coordf_t max_min_dist = 0);
     std::string     retract(bool toolchange = false);
     std::string     unretract() { return m_writer.unlift() + m_writer.unretract(); }
@@ -367,8 +367,11 @@ private:
     // For crossing perimeter retraction detection  (contain the layer & nozzle widdth used to construct it)
     // !!!! not thread-safe !!!! if threaded per layer, please store it in the thread.
     struct SliceOffsetted {
-        ExPolygons slices; const Layer* layer; coord_t diameter;
-    }                                   m_layer_slices_offseted{ {},nullptr, 0};
+        ExPolygons slices;
+        ExPolygons slices_offsetted;
+        const Layer* layer;
+        coord_t diameter;
+    }                                   m_layer_slices_offseted{ {},{},nullptr, 0};
     double                              m_volumetric_speed;
     // Support for the extrusion role markers. Which marker is active?
     ExtrusionRole                       m_last_extrusion_role;
@@ -393,6 +396,8 @@ private:
 
     // a previous extrusion path that is too small to be extruded, have to fusion it into the next call.
     ExtrusionPath                       m_last_too_small;
+    std::string                         m_last_description;
+    double                              m_last_speed_mm_per_sec;
 
     std::unique_ptr<CoolingBuffer>      m_cooling_buffer;
     std::unique_ptr<SpiralVase>         m_spiral_vase;

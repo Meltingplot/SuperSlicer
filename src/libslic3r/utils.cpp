@@ -43,7 +43,11 @@
 #include <boost/nowide/convert.hpp>
 #include <boost/nowide/cstdio.hpp>
 
+#if (TBB_VERSION_MAJOR > 2020)
+#include <tbb/global_control.h>
+#else
 #include <tbb/task_scheduler_init.h>
+#endif
 
 #if defined(__linux__) || defined(__GNUC__ )
 #include <strings.h>
@@ -118,9 +122,15 @@ void trace(unsigned int level, const char *message)
 void disable_multi_threading()
 {
     // Disable parallelization so the Shiny profiler works
+#if (TBB_VERSION_MAJOR > 2020)
+    static tbb::global_control *tbb_init = nullptr;
+    if (tbb_init == nullptr)
+        tbb_init = new tbb::global_control(tbb::global_control::parameter::max_allowed_parallelism, 1);
+#else
     static tbb::task_scheduler_init *tbb_init = nullptr;
     if (tbb_init == nullptr)
         tbb_init = new tbb::task_scheduler_init(1);
+#endif
 }
 
 static std::string g_var_dir;
@@ -172,7 +182,9 @@ static std::string g_data_dir;
 
 void set_data_dir(const std::string &dir)
 {
-    g_data_dir = dir;
+	// make sure the path is well formed for the os.
+	boost::filesystem::path fixpath(dir);
+	g_data_dir = fixpath.make_preferred().string();
 }
 
 const std::string& data_dir()

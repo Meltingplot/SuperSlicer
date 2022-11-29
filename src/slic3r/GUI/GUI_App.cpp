@@ -744,7 +744,14 @@ void GUI_App::init_app_config()
 	// Mac : "~/Library/Application Support/Slic3r"
 
     if (data_dir().empty()) {
-        //check if there is a "configuration" directory next to the resources
+        //check if there is a "configuration" directory
+#ifdef __APPLE__
+        //... next to the app bundle on MacOs
+        if (boost::filesystem::exists(boost::filesystem::path{ resources_dir() } / ".." / ".." / ".." / "configuration")) {
+            set_data_dir((boost::filesystem::path{ resources_dir() } / ".." / ".." / ".." / "configuration").string());
+        } else
+#endif
+        //... next to the resources directory
         if (boost::filesystem::exists(boost::filesystem::path{ resources_dir() } / ".." / "configuration")) {
             set_data_dir((boost::filesystem::path{ resources_dir() } / ".." / "configuration").string());
         } else {
@@ -775,8 +782,7 @@ void GUI_App::init_app_config()
                     (boost::format(_u8L("Error parsing %1% config file, it is probably corrupted. "
                         "Try to manually delete the file to recover from the error. Your user profiles will not be affected.")) % std::string(SLIC3R_APP_NAME)).str() +
                     "\n\n" + app_config->config_path() + "\n\n" + error);
-            }
-            else {
+            } else {
                 throw Slic3r::RuntimeError(
                     (boost::format(_u8L("Error parsing %1% config file, it is probably corrupted. "
                         "Try to manually delete the file to recover from the error.")) % std::string(GCODEVIEWER_APP_NAME)).str() +
@@ -865,7 +871,7 @@ bool GUI_App::on_init_inner()
         }
         wxString artist;
         if (!file_name.empty() && file_name != (std::string(SLIC3R_APP_NAME) + L(" icon"))) {
-            wxString splash_screen_path = wxString::FromUTF8((boost::filesystem::path(Slic3r::resources_dir()) / "splashscreen" / file_name).string());
+            wxString splash_screen_path = wxString::FromUTF8((boost::filesystem::path(Slic3r::resources_dir()) / "splashscreen" / file_name).string().c_str());
         // make a bitmap with dark grey banner on the left side
             bmp = SplashScreen::MakeBitmap(wxBitmap(splash_screen_path, wxBITMAP_TYPE_JPEG));
 
@@ -977,6 +983,8 @@ bool GUI_App::on_init_inner()
     // hide settings tabs after first Layout
     if (is_editor())
         mainframe->select_tab(MainFrame::ETabType::LastPlater);
+    else
+        mainframe->select_tab(MainFrame::ETabType::PlaterGcode);
 
     sidebar().obj_list()->init_objects(); // propagate model objects to object list
 //     update_mode(); // !!! do that later
@@ -1246,6 +1254,8 @@ void GUI_App::recreate_GUI(const wxString& msg_name)
     if (is_editor())
         // hide settings tabs after first Layout
         mainframe->select_tab(MainFrame::ETabType::LastPlater);
+    else
+        mainframe->select_tab(MainFrame::ETabType::PlaterGcode);
     // Propagate model objects to object list.
     sidebar().obj_list()->init_objects();
     SetTopWindow(mainframe);
@@ -1908,7 +1918,7 @@ void GUI_App::add_config_menu(wxMenuBar *menu)
                 title += " - " + _L("Language selection");
                 wxMessageDialog dialog(nullptr,
                     _L("Switching the language will trigger application restart.\n"
-                        "You will lose content of the plater.") + "\n\n" +
+                        "You will lose content of the platter.") + "\n\n" +
                     _L("Do you want to proceed?"),
                     title,
                     wxICON_QUESTION | wxOK | wxCANCEL);

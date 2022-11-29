@@ -196,6 +196,8 @@ void BackgroundSlicingProcess::process_fff()
 	    }
 		this->set_step_done(bspsGCodeFinalize);
 	}
+	evt.SetInt((int)(m_fff_print->step_state_with_timestamp(PrintStep::psGCodeExport).timestamp));
+	wxQueueEvent(GUI::wxGetApp().mainframe->m_plater, evt.Clone());
 }
 
 static void write_thumbnail(Zipper& zipper, const ThumbnailData& data)
@@ -213,6 +215,9 @@ void BackgroundSlicingProcess::process_sla()
 {
     assert(m_print == m_sla_print);
     m_print->process();
+	wxCommandEvent evt(m_event_slicing_completed_id);
+	evt.SetInt((int)(m_sla_print->step_state_with_timestamp(SLAPrintStep::slapsRasterize).timestamp));
+	wxQueueEvent(GUI::wxGetApp().mainframe->m_plater, evt.Clone());
     if (this->set_step_started(bspsGCodeFinalize)) {
         if (! m_export_path.empty()) {
 			wxQueueEvent(GUI::wxGetApp().mainframe->m_plater, new wxCommandEvent(m_event_export_began_id));
@@ -489,11 +494,21 @@ std::pair<PrintBase::PrintValidationError, std::string> BackgroundSlicingProcess
 
 // Apply config over the print. Returns false, if the new config values caused any of the already
 // processed steps to be invalidated, therefore the task will need to be restarted.
-Print::ApplyStatus BackgroundSlicingProcess::apply(const Model &model, const DynamicPrintConfig &config)
+Print::ApplyStatus BackgroundSlicingProcess::apply(const Model &model, const DynamicPrintConfig &config, const DynamicPrintConfig *physical_printer_config)
 {
 	assert(m_print != nullptr);
 	assert(config.opt_enum<PrinterTechnology>("printer_technology") == m_print->technology());
 	Print::ApplyStatus invalidated = m_print->apply(model, config);
+    if (physical_printer_config && 
+        (m_print->physical_printer_config().diff(*physical_printer_config).size() != 0 || m_print->physical_printer_config().keys() != physical_printer_config->keys()) ) {
+        m_print->physical_printer_config().clear();
+        m_print->physical_printer_config().apply(*physical_printer_config);
+        if (!invalidated)
+            invalidated = PrintBase::APPLY_STATUS_INVALIDATED;
+        if (m_print->technology() == ptFFF && this->m_fff_print->is_step_done(psGCodeExport)) {
+            this->m_fff_print->invalidate_step(psGCodeExport);
+        }
+    }
 	if ((invalidated & PrintBase::APPLY_STATUS_INVALIDATED) != 0 && m_print->technology() == ptFFF &&
 		!this->m_fff_print->is_step_done(psGCodeExport)) {
 		// Some FFF status was invalidated, and the G-code was not exported yet.
@@ -519,7 +534,7 @@ void BackgroundSlicingProcess::schedule_export(const std::string &path, bool exp
 		return;
 
 	// Guard against entering the export step before changing the export path.
-	tbb::mutex::scoped_lock lock(m_print->state_mutex());
+	std::scoped_lock lock(m_print->state_mutex());
 	this->invalidate_step(bspsGCodeFinalize);
 	m_export_path = path;
 	m_export_path_on_removable_media = export_path_on_removable_media;
@@ -532,7 +547,7 @@ void BackgroundSlicingProcess::schedule_upload(Slic3r::PrintHostJob upload_job)
 		return;
 
 	// Guard against entering the export step before changing the export path.
-	tbb::mutex::scoped_lock lock(m_print->state_mutex());
+	std::scoped_lock lock(m_print->state_mutex());
 	this->invalidate_step(bspsGCodeFinalize);
 	m_export_path.clear();
 	m_upload_job = std::move(upload_job);
@@ -552,7 +567,7 @@ void BackgroundSlicingProcess::reset_export()
 		m_export_path.clear();
 		m_export_path_on_removable_media = false;
 		// invalidate_step expects the mutex to be locked.
-		tbb::mutex::scoped_lock lock(m_print->state_mutex());
+		std::scoped_lock lock(m_print->state_mutex());
 		this->invalidate_step(bspsGCodeFinalize);
 	}
 }

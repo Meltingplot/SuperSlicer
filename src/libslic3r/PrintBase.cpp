@@ -4,6 +4,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/lexical_cast.hpp>
 
+#include <regex>
+
 #include "I18N.hpp"
 
 //! macro used to mark string used at localization, 
@@ -62,9 +64,10 @@ std::string PrintBase::output_filename(const std::string &format, const std::str
 		cfg.set_key_value("input_filename_base", new ConfigOptionString(filename_base));
     }
     try {
+        uint16_t extruder_initial = config_override->option("initial_extruder") != nullptr ? config_override->option("initial_extruder")->getInt() : 0;
         boost::filesystem::path filepath = format.empty() ?
-			cfg.opt_string("input_filename_base") + default_ext :
-			this->placeholder_parser().process(format, 0, &cfg);
+            cfg.opt_string("input_filename_base") + default_ext :
+            this->placeholder_parser().process(format, extruder_initial, &cfg);
         //remove unwanted characters
         std::string forbidden_base;
         if (const ConfigOptionString* opt = this->placeholder_parser().external_config()->option<ConfigOptionString>("gcode_filename_illegal_char")) {
@@ -139,7 +142,7 @@ void PrintBase::status_update_warnings(ObjectID object_id, int step, PrintStateB
     	printf("%s warning: %s\n", (object_id == this->id()) ? "print" : "print object", message.c_str());
 }
 
-tbb::mutex& PrintObjectBase::state_mutex(PrintBase *print)
+std::mutex& PrintObjectBase::state_mutex(PrintBase *print)
 { 
 	return print->state_mutex();
 }

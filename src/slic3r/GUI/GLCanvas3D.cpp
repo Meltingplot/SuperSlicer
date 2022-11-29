@@ -2362,10 +2362,15 @@ static void reserve_new_volume_finalize_old_volume(GLVolume& vol_new, GLVolume& 
 	vol_old.finalize_geometry(gl_initialized);
 }
 
+bool GLCanvas3D::is_gcode_preview_dirty(const GCodeProcessor::Result& gcode_result) {
+    return last_showned_gcode != gcode_result.computed_timestamp;
+}
+
 void GLCanvas3D::load_gcode_preview(const GCodeProcessor::Result& gcode_result, const std::vector<std::string>& str_tool_colors)
 {
-    if (m_dirty_gcode) {
-        m_dirty_gcode = false;
+    if (last_showned_gcode != gcode_result.computed_timestamp
+        || !m_gcode_viewer.is_loaded(gcode_result)) {
+        last_showned_gcode = gcode_result.computed_timestamp;
         m_gcode_viewer.load(gcode_result, *this->fff_print(), m_initialized);
 
         if (wxGetApp().is_editor()) {
@@ -2401,6 +2406,14 @@ void GLCanvas3D::load_sla_preview()
     }
 }
 
+
+bool GLCanvas3D::is_preview_dirty() {
+    const Print* print = this->fff_print();
+    if (print == nullptr)
+        return false;
+    return last_showned_print != print->timestamp_last_change();
+}
+
 void GLCanvas3D::load_preview(const std::vector<std::string>& str_tool_colors, const std::vector<CustomGCode::Item>& color_print_values)
 {
     const Print* print = this->fff_print();
@@ -2409,8 +2422,8 @@ void GLCanvas3D::load_preview(const std::vector<std::string>& str_tool_colors, c
 
     _set_current();
 
-    if (m_dirty_preview || m_volumes.empty()) {
-        m_dirty_preview = false;
+    if (last_showned_print  != print->timestamp_last_change() || m_volumes.empty()) {
+        last_showned_print = print->timestamp_last_change();
         // Release OpenGL data before generating new data.
         this->reset_volumes();
         //note: this isn't releasing all the memory in all os, can make it crash on linux for exemple.
@@ -5266,8 +5279,8 @@ void GLCanvas3D::_check_and_update_toolbar_icon_scale() const
     int   items_cnt = m_main_toolbar.get_visible_items_cnt() + m_undoredo_toolbar.get_visible_items_cnt() + collapse_toolbar.get_visible_items_cnt();
     float noitems_width = top_tb_width - size * items_cnt; // width of separators and borders in top toolbars 
 
-    // calculate scale needed for items in all top toolbars
-    float new_h_scale = (cnv_size.get_width() - noitems_width) / (items_cnt * GLToolbar::Default_Icons_Size);
+    // calculate scale needed for items in all top toolbars (make sure the size is positive even if `cnv_size` is less than `noitems_width`)
+    float new_h_scale = std::max((cnv_size.get_width() - noitems_width), 1.0f) / (items_cnt * GLToolbar::Default_Icons_Size);
 
     items_cnt = m_gizmos.get_selectable_icons_cnt() + 3; // +3 means a place for top and view toolbars and separators in gizmos toolbar
 
@@ -6102,15 +6115,15 @@ void GLCanvas3D::_load_print_object_toolpaths(const PrintObject& print_object, c
                         _3DScene::extrusionentity_to_verts(layerm->perimeters, float(layer->print_z), copy,
                         	volume(idx_layer, layerm->region()->config().perimeter_extruder.value, 0));
                     if (ctxt.has_infill) {
-                        for (const ExtrusionEntity *ee : layerm->fills.entities) {
+                        for (const ExtrusionEntity *ee : layerm->fills.entities()) {
                             // fill represents infill extrusions of a single island.
                             const auto *fill = dynamic_cast<const ExtrusionEntityCollection*>(ee);
-                            if (fill != nullptr && !fill->entities.empty())
+                            if (fill != nullptr && !fill->entities().empty())
                                 _3DScene::extrusionentity_to_verts(*fill, 
                                     float(layer->print_z), 
                                     copy,
 	                                volume(idx_layer, 
-                                        is_solid_infill(fill->entities.front()->role()) ?
+                                        is_solid_infill(fill->entities().front()->role()) ?
                                         layerm->region()->config().solid_infill_extruder :
                                         layerm->region()->config().infill_extruder,
 		                                1));
@@ -6120,7 +6133,7 @@ void GLCanvas3D::_load_print_object_toolpaths(const PrintObject& print_object, c
                 if (ctxt.has_support) {
                     const SupportLayer *support_layer = dynamic_cast<const SupportLayer*>(layer);
                     if (support_layer) {
-                        for (const ExtrusionEntity *extrusion_entity : support_layer->support_fills.entities)
+                        for (const ExtrusionEntity *extrusion_entity : support_layer->support_fills.entities())
                             if (extrusion_entity != nullptr)
                                 _3DScene::extrusionentity_to_verts(*extrusion_entity, float(layer->print_z), copy,
 	                            volume(idx_layer, 

@@ -16,6 +16,8 @@
 
 #include "libslic3r.h"
 
+#include <ctime>
+
 namespace Slic3r {
 
 class Print;
@@ -252,6 +254,7 @@ private:
     void clip_fill_surfaces();
     void tag_under_bridge();
     void discover_horizontal_shells();
+    void clean_surfaces();
     void combine_infill();
     void _generate_support_material();
     std::pair<FillAdaptive::OctreePtr, FillAdaptive::OctreePtr> prepare_adaptive_infill_data();
@@ -477,6 +480,8 @@ public:
 
     const PrintStatistics&      print_statistics() const { return m_print_statistics; }
     PrintStatistics&            print_statistics() { return m_print_statistics; }
+    std::time_t                 timestamp_last_change() const { return m_timestamp_last_change; }
+
 
     // Wipe tower support.
     bool                        has_wipe_tower() const;
@@ -491,14 +496,15 @@ public:
 
     //put this in public to be accessible for tests, it was in private before.
     bool                invalidate_state_by_config_options(const std::vector<t_config_option_key> &opt_keys);
+
+    // Invalidates the step, and its depending steps in Print.
+    //in public to invalidate gcode when the physical printer change. It's needed if we allow the gcode macro to read these values.
+    bool                invalidate_step(PrintStep step);
 protected:
     // methods for handling regions
     PrintRegion*        get_region(size_t idx)        { return m_regions[idx]; }
     //PrintRegion*        add_region();
     PrintRegion*        add_region(const PrintRegionConfig &config);
-
-    // Invalidates the step, and its depending steps in Print.
-    bool                invalidate_step(PrintStep step);
 
 private:
 	void 				config_diffs(
@@ -548,6 +554,8 @@ private:
 
     // Estimated print time, filament consumed.
     PrintStatistics                         m_print_statistics;
+    // tiem of last change, to see if the gui need to be updated
+    std::time_t                             m_timestamp_last_change;
 
     // To allow GCode to set the Print's GCodeExport step status.
     friend class GCode;
