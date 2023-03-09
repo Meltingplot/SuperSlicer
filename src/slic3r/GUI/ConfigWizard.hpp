@@ -14,7 +14,9 @@ class PresetUpdater;
 
 namespace GUI {
 
-#define ALLOW_PRUSA_FIRST "PrusaResearch"
+#ifndef SLIC3R_ORDERED_VENDORS
+    #define ALLOW_PRUSA_FIRST "PrusaResearch"
+#endif
 
 class ConfigWizard: public DPIDialog
 {
