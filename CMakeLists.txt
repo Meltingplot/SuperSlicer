@@ -34,6 +34,7 @@ endif()
 
 option(SLIC3R_STATIC 			"Compile Slic3r with static libraries (Boost, TBB, glew)" ${SLIC3R_STATIC_INITIAL})
 option(SLIC3R_GUI    			"Compile Slic3r with GUI components (OpenGL, wxWidgets)" 1)
+option(SLIC3R_ORDERED_VENDORS   "Compile Slic3r with ordered vendor list" 1)
 option(SLIC3R_FHS               "Assume Slic3r is to be installed in a FHS directory structure" 0)
 option(SLIC3R_WX_STABLE         "Build against wxWidgets stable (3.0) as oppsed to dev (3.1) on Linux" 0)
 option(SLIC3R_PROFILE 			"Compile Slic3r with an invasive Shiny profiler" 0)
@@ -82,6 +83,10 @@ endforeach()
 
 if (SLIC3R_GUI)
     add_definitions(-DSLIC3R_GUI)
+endif ()
+
+if (SLIC3R_ORDERED_VENDORS)
+    add_definitions(-DSLIC3R_ORDERED_VENDORS)
 endif ()
 
 if(SLIC3R_DESKTOP_INTEGRATION)
