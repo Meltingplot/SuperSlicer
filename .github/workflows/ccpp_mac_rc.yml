@@ -39,7 +39,7 @@ jobs:
       run: security find-identity -v
     - name: register codesign
       run: |
-        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_KEYCHAIN_TEMP_PASSWORD" build.keychain
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $MACOS_KEYCHAIN_TEMP_PASSWORD build.keychain
     - name: run codesign on exe
       run: |
         /usr/bin/codesign --options=runtime --force -s "$MACOS_APP_DEVELOPER_ID" ./build/pack/SuperSlicer/SuperSlicer.app/Contents/MacOS/SuperSlicer -v
