@@ -24,5 +24,5 @@ set(SLIC3R_BASED_ON " based on PrusaSlicer")
 # to get he github repo
 set(SLIC3R_GITHUB "supermerill/SuperSlicer")
 # download url
-set(SLIC3R_DOWNLOAD "https://github.com/supermerill/SuperSlicer/releases")
+set(SLIC3R_DOWNLOAD "https://github.com/Meltingplot/SuperSlicer/releases")
 set(SLIC3R_DOC_URL "https://manual.slic3r.org/")
