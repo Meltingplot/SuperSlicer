@@ -28,18 +28,20 @@ jobs:
           MACOS_APP_PWD: ${{ secrets.MACOS_NOTARIZATION_PASS }}
           MACOS_APP_MAIL: ${{ secrets.MACOS_NOTARIZATION_USER }}
           MACOS_APP_DEVELOPER_ID: ${{ vars.MACOS_APP_DEVELOPER_ID }}
+          MACOS_APP_TEAM_ID: ${{ vars.MACOS_APP_TEAM_ID }}
           MACOS_KEYCHAIN_TEMP_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_TEMP_PASSWORD }}
       run: |
         echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
         security create-keychain -p "$MACOS_KEYCHAIN_TEMP_PASSWORD" build.keychain
         security default-keychain -s build.keychain
         security unlock-keychain -p "$MACOS_KEYCHAIN_TEMP_PASSWORD" build.keychain
+        security set-keychain-settings -lut 21600 build.keychain
         security import certificate.p12 -k build.keychain -P $MACOS_CERTIFICATE_PWD -T /usr/bin/codesign
     - name: verify certificate presence
       run: security find-identity -v
     - name: register codesign
       run: |
-        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $MACOS_KEYCHAIN_TEMP_PASSWORD build.keychain
+        security set-key-partition-list -S apple-tool:,apple:,codesign:,notarytool: -s -k "$MACOS_KEYCHAIN_TEMP_PASSWORD" build.keychain
     - name: run codesign on exe
       run: |
         /usr/bin/codesign --options=runtime --force -s "$MACOS_APP_DEVELOPER_ID" ./build/pack/SuperSlicer/SuperSlicer.app/Contents/MacOS/SuperSlicer -v
@@ -56,19 +58,23 @@ jobs:
         codesign -dvv SuperSlicer.dmg
     - name: notarize the dmg
       run: |
-        xcrun altool --notarize-app -f SuperSlicer.dmg --primary-bundle-id org.slic3r.superslicer -u "$MACOS_APP_MAIL" -p "$MACOS_APP_PWD"
+        xcrun notarytool store-credentials "notarytool-profile" --apple-id "$MACOS_APP_MAIL" --team-id "$MACOS_APP_TEAM_ID" --password "$MACOS_APP_PWD"
+        xcrun notarytool submit "SuperSlicer.dmg" --keychain-profile "notarytool-profile" --wait
         spctl -a -t open --context context:primary-signature -v SuperSlicer.dmg
     - name: run codesign on app
       run: |
         /usr/bin/codesign --force -s "$MACOS_APP_DEVELOPER_ID" ./build/pack/SuperSlicer/SuperSlicer.app -v
         codesign -vvv --deep --strict ./build/pack/SuperSlicer/SuperSlicer.app
         codesign -dvv ./build/pack/SuperSlicer/SuperSlicer.app
-    - name: Upload artifact
+    - name: run stapler
+      run: |
+        xcrun stapler staple SuperSlicer.dmg
+    - name: Upload App artifact
       uses: actions/upload-artifact@v1.0.0
       with:
         name: rc_macos.app
         path: build/pack/SuperSlicer/SuperSlicer.app
-    - name: Upload artifact
+    - name: Upload DMG artifact
       uses: actions/upload-artifact@v1.0.0
       with:
         name: rc_macos.dmg
