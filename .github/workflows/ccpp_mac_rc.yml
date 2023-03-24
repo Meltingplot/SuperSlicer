@@ -43,6 +43,7 @@ jobs:
         security set-key-partition-list -S apple-tool:,apple:,codesign:,notarytool: -s -k "$MACOS_KEYCHAIN_TEMP_PASSWORD" build.keychain
     - name: run codesign on exe
       run: |
+        /usr/bin/codesign --options=runtime --force -s "$MACOS_APP_DEVELOPER_ID" ./build/pack/SuperSlicer/SuperSlicer.app/Contents/MacOS/libzstd.1.dylib
         /usr/bin/codesign --options=runtime --force -s "$MACOS_APP_DEVELOPER_ID" ./build/pack/SuperSlicer/SuperSlicer.app/Contents/MacOS/SuperSlicer -v
         codesign -vvv --deep --strict ./build/pack/SuperSlicer/SuperSlicer.app/Contents/MacOS/SuperSlicer
         codesign -dvv ./build/pack/SuperSlicer/SuperSlicer.app/Contents/MacOS/SuperSlicer
