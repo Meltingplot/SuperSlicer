@@ -72,10 +72,10 @@ jobs:
     - name: Upload App artifact
       uses: actions/upload-artifact@v1.0.0
       with:
-        name: rc_macos.app
+        name: SuperSlicer-mp-rc_macos.app
         path: build/pack/SuperSlicer/SuperSlicer.app
     - name: Upload DMG artifact
       uses: actions/upload-artifact@v1.0.0
       with:
-        name: rc_macos.dmg
-        path: build/SuperSlicer.dmg
+        name: SuperSlicer-mp-rc_macos.dmg
+        path: SuperSlicer.dmg
