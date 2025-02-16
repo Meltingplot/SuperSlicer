@@ -4543,7 +4543,7 @@ ProcessSurfaceResult PerimeterGenerator::process_classic(const Parameters &     
                         //growing back the polygon
                         ExPolygons thin = offset_ex(half_thin, double(min_width / 2));
                         assert(thin.size() <= 1);
-                        if (thin.empty()) continue;
+                        if (thin.empty() || thin.front().empty()) continue;
                         coord_t thin_walls_overlap = scale_t(params.config.thin_walls_overlap.get_abs_value(params.ext_perimeter_flow.nozzle_diameter()));
                         ExPolygons anchor = intersection_ex(offset_ex(half_thin, double(min_width / 2) +
                             (float)(thin_walls_overlap), jtSquare), no_thin_zone, ApplySafetyOffset::Yes);
@@ -4703,12 +4703,12 @@ ProcessSurfaceResult PerimeterGenerator::process_classic(const Parameters &     
                     // not using safety offset here would "detect" very narrow gaps
                     // (but still long enough to escape the area threshold) that gap fill
                     // won't be able to fill but we'd still remove from infill area
-                    no_last_gapfill = offset_ex(*all_next_onion, 0.5f * good_spacing + 10,
+                    no_last_gapfill = offset_ex(*all_next_onion, 0.5f * params.get_perimeter_spacing() + 30,
                         (params.use_round_perimeters() ? ClipperLib::JoinType::jtRound : ClipperLib::JoinType::jtMiter),
                         (params.use_round_perimeters() ? params.get_min_round_spacing() : 3));
                     if (perimeter_idx == 1) {
                         append(gaps, ensure_valid(diff_ex(
-                            offset_ex(last, -0.5f * params.get_ext_perimeter_spacing()),
+                            offset_ex(last, -0.5f * params.get_ext_perimeter_spacing() + 30),
                             no_last_gapfill), resolution));  // safety offset
                     } else {
                         append(gaps, ensure_valid(diff_ex(
