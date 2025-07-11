@@ -4751,25 +4751,35 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, bool is_hole_
 
     Point current_point = paths.front().first_point();
     Point next_point    = paths.front().polyline.get_point(1);
+    Point prev_point    = paths.back().polyline.get_point(paths.back().polyline.size() - 2);
 
-    Vec2d  current_pos = current_point.cast<double>();
-    Vec2d  next_pos    = next_point.cast<double>();
-    Vec2d  vec_dist    = next_pos - current_pos;
-    double vec_norm    = vec_dist.norm();
+    Vec2d current_pos = current_point.cast<double>();
 
-    // Rotate by 90 degrees towards the loop interior.
-    double angle = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? PI / 2. : -PI / 2.;
+    Vec2d dir_prev = (current_point.cast<double>() - prev_point.cast<double>());
+    Vec2d dir_next = (next_point.cast<double>() - current_point.cast<double>());
+    if (dir_prev.norm() == 0)
+        dir_prev = dir_next;
+    if (dir_next.norm() == 0)
+        dir_next = dir_prev;
+    dir_prev.normalize();
+    dir_next.normalize();
+    Vec2d tangent = dir_prev + dir_next;
+    if (tangent.squaredNorm() < 1e-12)
+        tangent = dir_next;
+    tangent.normalize();
+
+    double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
+    Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
+    normal.normalize();
+
     const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
     coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
     if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
         dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
-            [current_pos, current_point, vec_dist, vec_norm, angle](coord_t dist)->Point {
-                Point pt = Point::round(current_pos + vec_dist * (dist / vec_norm));
-                pt.rotate(angle, current_point);
-                return pt;
+            [current_pos, normal](coord_t dist)->Point {
+                return Point::round(current_pos + normal * dist);
             }));
-    Point pt = Point::round(current_pos + vec_dist * (dist / vec_norm));
-    pt.rotate(angle, current_point);
+    Point pt = Point::round(current_pos + normal * dist);
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ pt, current_point }), paths.front().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm();
@@ -4784,25 +4794,35 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, bool is_hole_lo
 
     Point current_point = paths.back().last_point();
     Point prev_point    = paths.back().polyline.get_point(paths.back().polyline.size() - 2);
+    Point next_point    = paths.front().polyline.get_point(1);
 
-    Vec2d  current_pos = current_point.cast<double>();
-    Vec2d  prev_pos    = prev_point.cast<double>();
-    Vec2d  vec_dist    = current_pos - prev_pos;
-    double vec_norm    = vec_dist.norm();
+    Vec2d current_pos = current_point.cast<double>();
 
-    // Mirror logic of perimeter_inside_start: rotate 90 degrees toward the loop interior.
-    double angle = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? PI / 2. : -PI / 2.;
+    Vec2d dir_prev = (current_point.cast<double>() - prev_point.cast<double>());
+    Vec2d dir_next = (next_point.cast<double>() - current_point.cast<double>());
+    if (dir_prev.norm() == 0)
+        dir_prev = dir_next;
+    if (dir_next.norm() == 0)
+        dir_next = dir_prev;
+    dir_prev.normalize();
+    dir_next.normalize();
+    Vec2d tangent = dir_prev + dir_next;
+    if (tangent.squaredNorm() < 1e-12)
+        tangent = dir_prev;
+    tangent.normalize();
+
+    double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
+    Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
+    normal.normalize();
+
     const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
     coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
     if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
         dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
-            [current_pos, current_point, vec_dist, vec_norm, angle](coord_t dist)->Point {
-                Point pt = Point::round(current_pos + vec_dist * (dist / vec_norm));
-                pt.rotate(angle, current_point);
-                return pt;
+            [current_pos, normal](coord_t dist)->Point {
+                return Point::round(current_pos + normal * dist);
             }));
-    Point pt_inside = Point::round(current_pos + vec_dist * (dist / vec_norm));
-    pt_inside.rotate(angle, current_point);
+    Point pt_inside = Point::round(current_pos + normal * dist);
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ current_point, pt_inside }), paths.back().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm();
