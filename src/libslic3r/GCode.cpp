@@ -4967,7 +4967,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         }
     }
     if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) && original_loop.role().is_perimeter() && !building_paths.empty()) {
-        coordf_t inset = scale_(building_paths.front().width() * (original_loop.role().is_external_perimeter() ? 0.5 : 1.0));
+        coordf_t inset = scale_(building_paths.front().width() * (original_loop.role().is_external_perimeter() ? 0.5 : 1.5));
         if (inset > 0 && inset < full_loop_length / 2) {
             clip_start(building_paths, inset);
             clip_end(building_paths, inset);
