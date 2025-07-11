@@ -767,6 +767,8 @@ GCodeGenerator::GCodeGenerator() :
     m_second_layer_things_done(false),
     m_silent_time_estimator_enabled(false),
     m_current_instance({nullptr, -1}),
+    m_current_object_layer_idx(0),
+    m_current_instance_idx(0),
     m_last_too_small(ExtrusionPath{ExtrusionAttributes{ExtrusionRole::None}})
     {
         cooldown_marker_init();
@@ -4744,6 +4746,181 @@ void GCodeGenerator::seam_notch(const ExtrusionLoop& original_loop,
     for(auto &e : notch_extrusion_end) assert(e.polyline.empty() || e.polyline.is_valid());
 }
 
+static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
+        bool is_hole_loop, bool is_full_loop_ccw,
+        double nozzle_diam, double setting_max_depth)
+{
+    if (paths.empty() || paths.front().size() < 2 || paths.back().size() < 2)
+        return 0;
+
+    Point current_point = paths.front().first_point();
+    Polygon poly;
+    for (const ExtrusionPath &p : paths) {
+        Polyline pl = p.polyline.to_polyline();
+        poly.points.insert(poly.points.end(), pl.points.begin(), pl.points.end() - 1);
+    }
+    int idx = poly.find_point(current_point, SCALED_EPSILON);
+    Point next_point;
+    Point prev_point;
+    if (idx >= 0) {
+        next_point = poly.points[(idx + 1) % poly.points.size()];
+        prev_point = poly.points[(idx + poly.points.size() - 1) % poly.points.size()];
+    } else {
+        next_point = paths.front().polyline.get_point(1);
+        prev_point = paths.back().polyline.get_point(paths.back().polyline.size() - 2);
+    }
+
+    Vec2d current_pos = current_point.cast<double>();
+
+    Vec2d dir_prev = (current_point.cast<double>() - prev_point.cast<double>());
+    Vec2d dir_next = (next_point.cast<double>() - current_point.cast<double>());
+    if (dir_prev.norm() == 0)
+        dir_prev = dir_next;
+    if (dir_next.norm() == 0)
+        dir_next = dir_prev;
+    dir_prev.normalize();
+    dir_next.normalize();
+    Vec2d tangent = dir_prev + dir_next;
+    if (tangent.squaredNorm() < 1e-12)
+        tangent = dir_next;
+    tangent.normalize();
+
+    double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
+    Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
+    normal.normalize();
+
+    coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
+    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
+        dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
+            [current_pos, normal](coord_t d)->Point {
+                return Point::round(current_pos + normal * d);
+            }));
+    if (dist <= 0)
+        dist = scale_d(nozzle_diam) / 2;
+    return dist;
+}
+
+void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
+{
+    if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty() || paths.front().size() < 2)
+        return;
+
+    Point current_point = paths.front().first_point();
+    Polygon poly;
+    for (const ExtrusionPath &p : paths) {
+        Polyline pl = p.polyline.to_polyline();
+        poly.points.insert(poly.points.end(), pl.points.begin(), pl.points.end() - 1);
+    }
+    int idx = poly.find_point(current_point, SCALED_EPSILON);
+    Point next_point;
+    Point prev_point;
+    if (idx >= 0) {
+        next_point = poly.points[(idx + 1) % poly.points.size()];
+        prev_point = poly.points[(idx + poly.points.size() - 1) % poly.points.size()];
+    } else {
+        next_point = paths.front().polyline.get_point(1);
+        prev_point = paths.back().polyline.get_point(paths.back().polyline.size() - 2);
+    }
+
+    Vec2d current_pos = current_point.cast<double>();
+
+    Vec2d dir_prev = (current_point.cast<double>() - prev_point.cast<double>());
+    Vec2d dir_next = (next_point.cast<double>() - current_point.cast<double>());
+    if (dir_prev.norm() == 0)
+        dir_prev = dir_next;
+    if (dir_next.norm() == 0)
+        dir_next = dir_prev;
+    dir_prev.normalize();
+    dir_next.normalize();
+    Vec2d tangent = dir_prev + dir_next;
+    if (tangent.squaredNorm() < 1e-12)
+        tangent = dir_next;
+    tangent.normalize();
+
+    double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
+    Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
+    normal.normalize();
+
+    const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
+    coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
+    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
+        dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
+            [current_pos, normal](coord_t dist)->Point {
+                return Point::round(current_pos + normal * dist);
+            }));
+    Point pt = Point::round(current_pos + normal * dist);
+
+    ExtrusionPath inside_path(ArcPolyline(Polyline{ pt, current_point }), paths.front().attributes(), false);
+    inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm() * 0.9;
+    gcode += this->_travel_before_extrude(inside_path, "perimeter inside start", speed);
+    gcode += this->extrude_path(inside_path, "perimeter inside start", speed);
+    if (m_travel_obstacle_tracker.is_init())
+        m_travel_obstacle_tracker.mark_extruded(&inside_path,
+                                                m_current_object_layer_idx,
+                                                m_current_instance_idx);
+}
+
+void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
+{
+    if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty() || paths.back().size() < 2)
+        return;
+
+    Point current_point = paths.back().last_point();
+    Polygon poly;
+    for (const ExtrusionPath &p : paths) {
+        Polyline pl = p.polyline.to_polyline();
+        poly.points.insert(poly.points.end(), pl.points.begin(), pl.points.end() - 1);
+    }
+    int idx = poly.find_point(current_point, SCALED_EPSILON);
+    Point prev_point;
+    Point next_point;
+    if (idx >= 0) {
+        prev_point = poly.points[(idx + poly.points.size() - 1) % poly.points.size()];
+        next_point = poly.points[(idx + 1) % poly.points.size()];
+    } else {
+        prev_point = paths.back().polyline.get_point(paths.back().polyline.size() - 2);
+        next_point = paths.front().polyline.get_point(1);
+    }
+
+    Vec2d current_pos = current_point.cast<double>();
+
+    Vec2d dir_prev = (current_point.cast<double>() - prev_point.cast<double>());
+    Vec2d dir_next = (next_point.cast<double>() - current_point.cast<double>());
+    if (dir_prev.norm() == 0)
+        dir_prev = dir_next;
+    if (dir_next.norm() == 0)
+        dir_next = dir_prev;
+    dir_prev.normalize();
+    dir_next.normalize();
+    Vec2d tangent = dir_prev + dir_next;
+    if (tangent.squaredNorm() < 1e-12)
+        tangent = dir_prev;
+    tangent.normalize();
+
+    double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
+    Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
+    normal.normalize();
+
+    const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
+    coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
+    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
+        dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
+            [current_pos, normal](coord_t dist)->Point {
+                return Point::round(current_pos + normal * dist);
+            }));
+    Point pt_inside = Point::round(current_pos + normal * dist);
+
+    ExtrusionPath inside_path(ArcPolyline(Polyline{ current_point, pt_inside }), paths.back().attributes(), false);
+    inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm() * 0.9;
+    gcode += this->_travel_before_extrude(inside_path, "perimeter inside end", speed);
+    gcode += this->extrude_path(inside_path, "perimeter inside end", speed);
+    if (m_travel_obstacle_tracker.is_init())
+        m_travel_obstacle_tracker.mark_extruded(&inside_path,
+                                                m_current_object_layer_idx,
+                                                m_current_instance_idx);
+    this->set_last_pos(pt_inside);
+}
+
 std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, const std::string_view description, double speed)
 {
     DEBUG_VISIT(original_loop, LoopAssertVisitor())
@@ -4821,6 +4998,9 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
     const Point seam_pos = loop_to_seam.first_point();
     const coordf_t full_loop_length = loop_to_seam.length();
     const bool is_full_loop_ccw = loop_to_seam.polygon().is_counter_clockwise();
+    size_t perimeter_idx = 0;
+    if (original_loop.role().is_perimeter() && !is_hole_loop)
+        perimeter_idx = m_perimeter_index++;
     //after that point, loop_to_seam can be modified by 'paths', so don't use it anymore
 #ifdef _DEBUG
     for (auto it = std::next(loop_to_seam.paths.begin()); it != loop_to_seam.paths.end(); ++it) {
@@ -4879,6 +5059,33 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
             }
         }
     }
+    bool apply_inside = false;
+    coordf_t inside_dist = 0;
+    bool inside_setting = BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside);
+    if (inside_setting && original_loop.role().is_perimeter() && !is_hole_loop && !building_paths.empty()) {
+        const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
+        inside_dist = compute_inside_distance_start(building_paths, is_hole_loop, is_full_loop_ccw,
+                                                   nozzle_diam, setting_max_depth);
+        coordf_t threshold = coordf_t(scale_t(setting_max_depth)) / 4;
+        if (inside_dist >= threshold)
+            m_apply_inside_layer = true;
+        apply_inside = m_apply_inside_layer || inside_dist >= threshold;
+    }
+    if (apply_inside) {
+        // For multiple perimeters, offset each loop start/end progressively so
+        // the inside segments do not overlap. The outermost perimeter uses half
+        // a perimeter width and each subsequent perimeter adds another half
+        // width.
+        double inset_factor = 0.5 * (perimeter_idx + 1);
+        coordf_t inset = scale_(building_paths.front().width() * inset_factor);
+        if (inset > 0 && inset < full_loop_length / 2) {
+            clip_start(building_paths, inset);
+            clip_end(building_paths, inset);
+        }
+    }
+    // When extruding a short path inside before and after the loop, do not
+    // modify the perimeter itself. The inside segments are tracked separately
+    // and the loop is printed in full so the configured length is preserved.
     if (building_paths.empty()) return "";
     if (building_paths.size() == 1)
         assert(is_full_loop_ccw == Polygon(building_paths.front().polyline.to_polyline().points).is_counter_clockwise());
@@ -4917,9 +5124,12 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
     coordf_t point_dist_for_vec = std::max(scale_t(nozzle_diam) / 100, scale_t(m_config.seam_gap.get_abs_value(m_writer.tool()->id(), nozzle_diam)) / 2);
     assert(point_dist_for_vec > 0);
 
+    if (apply_inside)
+        perimeter_inside_start(building_paths, is_hole_loop, is_full_loop_ccw, nozzle_diam, gcode, speed);
+
     // generate the unretracting/wipe start move (same thing than for the end, but on the other side)
     assert(!wipe_paths.empty() && wipe_paths.front().size() > 1 && !wipe_paths.back().empty());
-    if (EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_start, true) && !wipe_paths.empty() && wipe_paths.front().size() > 1 && wipe_paths.back().size() > 1 && wipe_paths.front().role().is_external_perimeter()) {
+    if (!apply_inside && EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_start, true) && !wipe_paths.empty() && wipe_paths.front().size() > 1 && wipe_paths.back().size() > 1 && wipe_paths.front().role().is_external_perimeter()) {
         //note: previous & next are inverted to extrude "in the opposite direction, as we are "rewinding"
         //Point previous_point = wipe_paths.back().polyline.points.back();
         Point previous_point = wipe_paths.front().polyline.get_point_from_begin(std::min(wipe_paths.front().polyline.length() / 2, point_dist_for_vec));
@@ -5006,6 +5216,9 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         assert(!path.can_reverse());
         gcode += extrude_path(path, description, speed);
     }
+
+    if (apply_inside)
+        perimeter_inside_end(building_paths, is_hole_loop, is_full_loop_ccw, nozzle_diam, gcode, speed);
 
     // print seam tag with seam position (only for external perimeter & overhangs)
     if (original_loop.paths.front().role().is_external_perimeter())
@@ -5164,7 +5377,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         Point pt_inside = Point::round(/*(nd >= vec_norm) ? next_pos : */ (current_pos + vec_dist * ( dist / (vec_norm * sin_a))));
         pt_inside.rotate(angle, current_point);
 
-        if (EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_end, true)) {
+        if (!apply_inside && EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_end, true)) {
             if (!m_wipe.is_enabled()) {
                 if (!start_wipe.empty()) {
                     gcode += start_wipe;
@@ -5773,6 +5986,10 @@ void GCodeGenerator::set_region_for_extrude(const Print &print, const PrintObjec
 void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const LayerIsland &island, std::string &gcode)
 {
     m_seam_perimeters = true;
+    m_perimeter_index = 0;
+    m_apply_inside_layer = false;
+    m_current_object_layer_idx = print_args.print_instance.object_layer_to_print_id;
+    m_current_instance_idx     = print_args.print_instance.instance_id;
     const LayerRegion &layerm = *layer()->get_region(island.perimeters.region());
     // PrintObjects own the PrintRegions, thus the pointer to PrintRegion would be unique to a PrintObject, they would not
     // identify the content of PrintRegion accross the whole print uniquely. Translate to a Print specific PrintRegion.
@@ -5824,6 +6041,9 @@ void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const Lay
     }
     m_region = nullptr;
     m_seam_perimeters = false;
+    m_apply_inside_layer = false;
+    m_current_object_layer_idx = 0;
+    m_current_instance_idx = 0;
 }
 
 // Chain the paths hierarchically by a greedy algorithm to minimize a travel distance.

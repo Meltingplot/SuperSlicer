@@ -1086,6 +1086,8 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionPercents,            extruder_fan_offset))
     ((ConfigOptionPoints,              extruder_offset))
     ((ConfigOptionFloats,              extruder_temperature_offset))
+    ((ConfigOptionBools,               extrude_perimeter_inside))
+    ((ConfigOptionFloats,              extrude_perimeter_inside_length))
     ((ConfigOptionString,              extrusion_axis))
     ((ConfigOptionFloats,              extrusion_multiplier))
     ((ConfigOptionFloat,               fan_kickstart))
