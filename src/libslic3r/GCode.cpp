@@ -39,6 +39,8 @@
 #include "GCode/Travels.hpp"
 #include "Point.hpp"
 #include "Polygon.hpp"
+#include "Surface.hpp"
+#include "Geometry.hpp"
 #include "PrintConfig.hpp"
 #include "ShortestPath.hpp"
 #include "PrintConfig.hpp"
@@ -4748,7 +4750,8 @@ void GCodeGenerator::seam_notch(const ExtrusionLoop& original_loop,
 
 static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
         bool is_hole_loop, bool is_full_loop_ccw,
-        double nozzle_diam, double setting_max_depth)
+        double nozzle_diam, double setting_max_depth,
+        Point *inside_pt = nullptr)
 {
     if (paths.empty() || paths.front().size() < 2 || paths.back().size() < 2)
         return 0;
@@ -4797,6 +4800,8 @@ static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
             }));
     if (dist <= 0)
         dist = scale_d(nozzle_diam) / 2;
+    if (inside_pt != nullptr)
+        *inside_pt = Point::round(current_pos + normal * dist);
     return dist;
 }
 
@@ -5061,15 +5066,17 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
     }
     bool apply_inside = false;
     coordf_t inside_dist = 0;
+    Point     inside_point;
     bool inside_setting = BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside);
     if (inside_setting && original_loop.role().is_perimeter() && !is_hole_loop && !building_paths.empty()) {
         const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
         inside_dist = compute_inside_distance_start(building_paths, is_hole_loop, is_full_loop_ccw,
-                                                   nozzle_diam, setting_max_depth);
+                                                   nozzle_diam, setting_max_depth, &inside_point);
         coordf_t threshold = coordf_t(scale_t(setting_max_depth)) / 4;
-        if (inside_dist >= threshold)
+        bool cross_solid = !m_layer_solid_surfaces.empty() && contains(m_layer_solid_surfaces, inside_point);
+        if (inside_dist >= threshold && !cross_solid)
             m_apply_inside_layer = true;
-        apply_inside = m_apply_inside_layer || inside_dist >= threshold;
+        apply_inside = m_apply_inside_layer && !cross_solid;
     }
     if (apply_inside) {
         // For multiple perimeters, offset each loop start/end progressively so
@@ -5990,6 +5997,17 @@ void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const Lay
     m_apply_inside_layer = false;
     m_current_object_layer_idx = print_args.print_instance.object_layer_to_print_id;
     m_current_instance_idx     = print_args.print_instance.instance_id;
+    m_layer_solid_surfaces.clear();
+    for (const LayerRegion *lr : layer()->regions()) {
+        for (const Surface &srf : lr->fill_surfaces().surfaces) {
+            if ((srf.surface_type & SurfaceType::stPosTop) != 0 ||
+                (srf.surface_type & SurfaceType::stPosBottom) != 0 ||
+                (srf.surface_type & SurfaceType::stDensSolid) != 0)
+                m_layer_solid_surfaces.push_back(srf.expolygon);
+        }
+    }
+    if (!m_layer_solid_surfaces.empty())
+        m_layer_solid_surfaces = union_ex(m_layer_solid_surfaces);
     const LayerRegion &layerm = *layer()->get_region(island.perimeters.region());
     // PrintObjects own the PrintRegions, thus the pointer to PrintRegion would be unique to a PrintObject, they would not
     // identify the content of PrintRegion accross the whole print uniquely. Translate to a Print specific PrintRegion.
@@ -6044,6 +6062,7 @@ void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const Lay
     m_apply_inside_layer = false;
     m_current_object_layer_idx = 0;
     m_current_instance_idx = 0;
+    m_layer_solid_surfaces.clear();
 }
 
 // Chain the paths hierarchically by a greedy algorithm to minimize a travel distance.

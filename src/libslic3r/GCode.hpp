@@ -480,6 +480,7 @@ private:
     // Current object layer and instance index for obstacle tracking
     size_t                              m_current_object_layer_idx{0};
     size_t                              m_current_instance_idx{0};
+    ExPolygons                         m_layer_solid_surfaces;
     // Current layer processed. In sequential printing mode, only a single copy will be printed.
     // In non-sequential mode, all its copies will be printed.
     const Layer*                        m_layer;
