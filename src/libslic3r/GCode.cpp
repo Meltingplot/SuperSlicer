@@ -5079,11 +5079,14 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         apply_inside = m_apply_inside_layer && !cross_solid;
     }
     if (apply_inside) {
-        // For multiple perimeters, offset each loop start/end progressively so
-        // the inside segments do not overlap. The outermost perimeter uses half
-        // a perimeter width and each subsequent perimeter adds another half
-        // width.
-        double inset_factor = 0.5 * (perimeter_idx + 1);
+        // Offset each loop start/end progressively so the inside segments do not
+        // overlap. The outermost perimeter shall only be clipped by half of its
+        // width regardless of the print order. Inner perimeters are clipped by
+        // multiples of half a width moving inwards.
+        size_t perims_cfg = m_region ? m_region->config().perimeters.value : 1;
+        bool   outer_first = m_region ? m_region->config().external_perimeters_first.value : true;
+        double inset_factor = 0.5 * (outer_first ? double(perimeter_idx + 1)
+                                                 : std::max(1.0, double(perims_cfg - perimeter_idx)));
         coordf_t inset = scale_(building_paths.front().width() * inset_factor);
         if (inset > 0 && inset < full_loop_length / 2) {
             clip_start(building_paths, inset);
