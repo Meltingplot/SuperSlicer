@@ -4746,7 +4746,7 @@ void GCodeGenerator::seam_notch(const ExtrusionLoop& original_loop,
 
 void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
 {
-    if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || paths.empty() || paths.front().size() < 2)
+    if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty() || paths.front().size() < 2)
         return;
 
     Point current_point = paths.front().first_point();
@@ -4789,7 +4789,7 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, bool is_hole_
 
 void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
 {
-    if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || paths.empty() || paths.back().size() < 2)
+    if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty() || paths.back().size() < 2)
         return;
 
     Point current_point = paths.back().last_point();
@@ -4909,7 +4909,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
     const coordf_t full_loop_length = loop_to_seam.length();
     const bool is_full_loop_ccw = loop_to_seam.polygon().is_counter_clockwise();
     size_t perimeter_idx = 0;
-    if (original_loop.role().is_perimeter())
+    if (original_loop.role().is_perimeter() && !is_hole_loop)
         perimeter_idx = m_perimeter_index++;
     //after that point, loop_to_seam can be modified by 'paths', so don't use it anymore
 #ifdef _DEBUG
@@ -4969,7 +4969,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
             }
         }
     }
-    if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) && original_loop.role().is_perimeter() && !building_paths.empty()) {
+    if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) && original_loop.role().is_perimeter() && !is_hole_loop && !building_paths.empty()) {
         double inset_factor = original_loop.role().is_external_perimeter() ? 0.5 : 1.5 * std::max<size_t>(1, perimeter_idx);
         coordf_t inset = scale_(building_paths.front().width() * inset_factor);
         if (inset > 0 && inset < full_loop_length / 2) {
@@ -5018,7 +5018,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
     coordf_t point_dist_for_vec = std::max(scale_t(nozzle_diam) / 100, scale_t(m_config.seam_gap.get_abs_value(m_writer.tool()->id(), nozzle_diam)) / 2);
     assert(point_dist_for_vec > 0);
 
-    if (original_loop.role().is_perimeter())
+    if (original_loop.role().is_perimeter() && !is_hole_loop)
         perimeter_inside_start(building_paths, is_hole_loop, is_full_loop_ccw, nozzle_diam, gcode, speed);
 
     // generate the unretracting/wipe start move (same thing than for the end, but on the other side)
@@ -5111,7 +5111,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         gcode += extrude_path(path, description, speed);
     }
 
-    if (original_loop.role().is_perimeter())
+    if (original_loop.role().is_perimeter() && !is_hole_loop)
         perimeter_inside_end(building_paths, is_hole_loop, is_full_loop_ccw, nozzle_diam, gcode, speed);
 
     // print seam tag with seam position (only for external perimeter & overhangs)
