@@ -3657,7 +3657,6 @@ void GCodeGenerator::process_layer_single_object(
             m_config.apply(print_object.config(), true);
             m_layer = layer_to_print.layer();
             m_print_object_instance_id = static_cast<uint16_t>(print_args.print_instance.instance_id);
-            m_object_layer_to_print_id = static_cast<uint16_t>(print_args.print_instance.object_layer_to_print_id);
             const PrintInstance &instance = print_object.instances()[print_args.print_instance.instance_id];
             if (print.config().avoid_crossing_perimeters)
                 m_avoid_crossing_perimeters.init_layer(*m_layer);
@@ -4758,10 +4757,8 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, bool is_hole_
     Vec2d  vec_dist    = next_pos - current_pos;
     double vec_norm    = vec_dist.norm();
 
-    // Always rotate towards the interior of the printed object. The interior
-    // corresponds to the left side of the extrusion path regardless of the
-    // winding order of the loop, thus use a constant +90deg rotation.
-    double angle = PI / 2.;
+    // Rotate by 90 degrees towards the loop interior.
+    double angle = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? PI / 2. : -PI / 2.;
     const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
     coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
     if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
@@ -4778,8 +4775,6 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, bool is_hole_
     inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm();
     gcode += this->_travel_before_extrude(inside_path, "perimeter inside start", speed);
     gcode += this->extrude_path(inside_path, "perimeter inside start", speed);
-    if (m_travel_obstacle_tracker.is_init())
-        m_travel_obstacle_tracker.mark_extruded(&inside_path, m_object_layer_to_print_id, m_print_object_instance_id);
 }
 
 void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
@@ -4795,9 +4790,8 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, bool is_hole_lo
     Vec2d  vec_dist    = current_pos - prev_pos;
     double vec_norm    = vec_dist.norm();
 
-    // Mirror logic of perimeter_inside_start: move inside using a constant
-    // 90deg turn irrespective of loop orientation.
-    double angle = PI / 2.;
+    // Mirror logic of perimeter_inside_start: rotate 90 degrees toward the loop interior.
+    double angle = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? PI / 2. : -PI / 2.;
     const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
     coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
     if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
@@ -4814,8 +4808,6 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, bool is_hole_lo
     inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm();
     gcode += this->_travel_before_extrude(inside_path, "perimeter inside end", speed);
     gcode += this->extrude_path(inside_path, "perimeter inside end", speed);
-    if (m_travel_obstacle_tracker.is_init())
-        m_travel_obstacle_tracker.mark_extruded(&inside_path, m_object_layer_to_print_id, m_print_object_instance_id);
     this->set_last_pos(pt_inside);
 }
 
@@ -4952,6 +4944,13 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
             } else {
                 clip_end(building_paths, clip_length);
             }
+        }
+    }
+    if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) && !building_paths.empty()) {
+        coordf_t inset = scale_(building_paths.front().width() * (original_loop.role().is_external_perimeter() ? 0.5 : 1.0));
+        if (inset > 0 && inset < full_loop_length / 2) {
+            clip_start(building_paths, inset);
+            clip_end(building_paths, inset);
         }
     }
     // When extruding a short path inside before and after the loop, do not
@@ -5855,7 +5854,6 @@ void GCodeGenerator::set_region_for_extrude(const Print &print, const PrintObjec
 void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const LayerIsland &island, std::string &gcode)
 {
     m_seam_perimeters = true;
-    m_object_layer_to_print_id = static_cast<uint16_t>(print_args.print_instance.object_layer_to_print_id);
     const LayerRegion &layerm = *layer()->get_region(island.perimeters.region());
     // PrintObjects own the PrintRegions, thus the pointer to PrintRegion would be unique to a PrintObject, they would not
     // identify the content of PrintRegion accross the whole print uniquely. Translate to a Print specific PrintRegion.

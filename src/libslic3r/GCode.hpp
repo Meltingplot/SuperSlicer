@@ -558,7 +558,6 @@ private:
     std::string                         m_pending_pre_extrusion_gcode;
     // Pointer to currently exporting PrintObject and instance index.
     GCode::PrintObjectInstance          m_current_instance;
-    uint16_t                            m_object_layer_to_print_id = 0;
 
     // ordered list of object, to give them a unique id.
     std::vector<const PrintObject*> m_ordered_objects;
