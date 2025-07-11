@@ -4758,7 +4758,10 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, bool is_hole_
     Vec2d  vec_dist    = next_pos - current_pos;
     double vec_norm    = vec_dist.norm();
 
-    double angle = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? -PI / 2. : PI / 2.;
+    // Always rotate towards the interior of the printed object. The interior
+    // corresponds to the left side of the extrusion path regardless of the
+    // winding order of the loop, thus use a constant +90deg rotation.
+    double angle = PI / 2.;
     const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
     coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
     if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
@@ -4792,7 +4795,9 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, bool is_hole_lo
     Vec2d  vec_dist    = current_pos - prev_pos;
     double vec_norm    = vec_dist.norm();
 
-    double angle = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? -PI / 2. : PI / 2.;
+    // Mirror logic of perimeter_inside_start: move inside using a constant
+    // 90deg turn irrespective of loop orientation.
+    double angle = PI / 2.;
     const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
     coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
     if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
@@ -4949,11 +4954,9 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
             }
         }
     }
-    if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside)) {
-        coordf_t clip_inset = scale_(building_paths.front().width());
-        clip_start(building_paths, clip_inset);
-        clip_end(building_paths, clip_inset);
-    }
+    // When extruding a short path inside before and after the loop, do not
+    // modify the perimeter itself. The inside segments are tracked separately
+    // and the loop is printed in full so the configured length is preserved.
     if (building_paths.empty()) return "";
     if (building_paths.size() == 1)
         assert(is_full_loop_ccw == Polygon(building_paths.front().polyline.to_polyline().points).is_counter_clockwise());
