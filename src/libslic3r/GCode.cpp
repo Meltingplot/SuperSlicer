@@ -4929,7 +4929,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
 
     // generate the unretracting/wipe start move (same thing than for the end, but on the other side)
     assert(!wipe_paths.empty() && wipe_paths.front().size() > 1 && !wipe_paths.back().empty());
-    if ((EXTRUDER_CONFIG_WITH_DEFAULT(extrude_perimeter_inside, false) || EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_start, true)) && !wipe_paths.empty() && wipe_paths.front().size() > 1 && wipe_paths.back().size() > 1 && wipe_paths.front().role().is_external_perimeter()) {
+    if ((BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_start, true)) && !wipe_paths.empty() && wipe_paths.front().size() > 1 && wipe_paths.back().size() > 1 && wipe_paths.front().role().is_external_perimeter()) {
         //note: previous & next are inverted to extrude "in the opposite direction, as we are "rewinding"
         //Point previous_point = wipe_paths.back().polyline.points.back();
         Point previous_point = wipe_paths.front().polyline.get_point_from_begin(std::min(wipe_paths.front().polyline.length() / 2, point_dist_for_vec));
@@ -4997,16 +4997,19 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         //this->set_last_pos(pt);
         // use extrude instead of travel_to_xy to trigger the unretract
         ExtrusionPath fake_path_wipe(ArcPolyline(Polyline{ pt , current_point }), wipe_paths.front().attributes(), wipe_paths.front().can_reverse());
-        if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside))
+        if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside)) {
             fake_path_wipe.attributes_mutable().mm3_per_mm = wipe_paths.front().mm3_per_mm();
-        else
+            assert(!fake_path_wipe.can_reverse());
+            gcode += this->_travel_before_extrude(fake_path_wipe, "perimeter inside start", speed);
+            gcode += this->extrude_path(fake_path_wipe, "perimeter inside start", speed);
+        } else {
             fake_path_wipe.attributes_mutable().mm3_per_mm = 0;
-        assert(!fake_path_wipe.can_reverse());
-        // put travel before wipe (if ensure extrude_path don't do anything, then it's just an extra travel lost in the gcode).
-        gcode += this->_travel_before_extrude(fake_path_wipe, "wipe", speed);
-        gcode += ";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Wipe_Start) + "\n";
-        gcode += this->extrude_path(fake_path_wipe, "move inwards before retraction/seam", speed);
-        gcode += ";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Wipe_End) + "\n";
+            assert(!fake_path_wipe.can_reverse());
+            gcode += this->_travel_before_extrude(fake_path_wipe, "wipe", speed);
+            gcode += ";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Wipe_Start) + "\n";
+            gcode += this->extrude_path(fake_path_wipe, "move inwards before retraction/seam", speed);
+            gcode += ";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Wipe_End) + "\n";
+        }
     }
     
     //extrusion notch start if any
@@ -5158,7 +5161,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
 #endif
         double angle;
         if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside))
-            angle = (is_hole_loop ? is_full_loop_ccw : (!is_full_loop_ccw)) ? -PI / 2. : PI / 2.;
+            angle = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? -PI / 2. : PI / 2.;
         else {
             angle = abs_angle(angle_ccw(a - current_point, b - current_point)) / 3;
             if (is_hole_loop ? is_full_loop_ccw : (!is_full_loop_ccw))
@@ -5190,19 +5193,22 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         Point pt_inside = Point::round(/*(nd >= vec_norm) ? next_pos : */ (current_pos + vec_dist * ( dist / (vec_norm * sin_a))));
         pt_inside.rotate(angle, current_point);
 
-        if (EXTRUDER_CONFIG_WITH_DEFAULT(extrude_perimeter_inside, false) || EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_end, true)) {
+        if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_end, true)) {
             if (!m_wipe.is_enabled()) {
                 if (!start_wipe.empty()) {
                     gcode += start_wipe;
                     start_wipe = "";
                 }
                 ExtrusionPath end_wipe(ArcPolyline(Polyline{ current_point, pt_inside }), wipe_paths.back().attributes(), wipe_paths.back().can_reverse());
-                if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside))
+                if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside)) {
                     end_wipe.attributes_mutable().mm3_per_mm = wipe_paths.back().mm3_per_mm();
-                else
+                    gcode += this->_travel_before_extrude(end_wipe, "perimeter inside end", speed);
+                    gcode += this->extrude_path(end_wipe, "perimeter inside end", speed);
+                } else {
                     end_wipe.attributes_mutable().mm3_per_mm = 0;
-                gcode += this->_travel_before_extrude(end_wipe, "wipe", speed);
-                gcode += this->extrude_path(end_wipe, "move inwards before travel", speed);
+                    gcode += this->_travel_before_extrude(end_wipe, "wipe", speed);
+                    gcode += this->extrude_path(end_wipe, "move inwards before travel", speed);
+                }
             } else {
                 // also shift the wipe on retract if wipe_inside_end
                 // go to the inside (use clipper for easy shift)
