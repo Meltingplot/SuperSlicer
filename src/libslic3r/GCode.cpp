@@ -4755,7 +4755,7 @@ static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
         double nozzle_diam, double setting_max_depth,
         Point *inside_pt = nullptr)
 {
-    if (paths.empty() || paths.front().size() < 2 || paths.back().size() < 2)
+    if (paths.empty())
         return 0;
 
     Point current_point = paths.front().first_point();
@@ -4786,18 +4786,11 @@ static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
 
     Vec2d current_pos = current_point.cast<double>();
 
-    Vec2d dir_prev = (current_point.cast<double>() - prev_point.cast<double>());
-    Vec2d dir_next = (next_point.cast<double>() - current_point.cast<double>());
-    if (dir_prev.norm() == 0)
-        dir_prev = dir_next;
-    if (dir_next.norm() == 0)
-        dir_next = dir_prev;
-    dir_prev.normalize();
-    dir_next.normalize();
-    Vec2d tangent = dir_prev + dir_next;
-    if (tangent.squaredNorm() < 1e-12)
-        tangent = dir_next;
-    tangent.normalize();
+    Vec2d tangent = (next_point.cast<double>() - current_point.cast<double>());
+    if (tangent.norm() == 0)
+        tangent = (current_point.cast<double>() - prev_point.cast<double>());
+    if (tangent.norm() != 0)
+        tangent.normalize();
 
     double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
     Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
@@ -4862,18 +4855,11 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon
 
     Vec2d current_pos = current_point.cast<double>();
 
-    Vec2d dir_prev = (current_point.cast<double>() - prev_point.cast<double>());
-    Vec2d dir_next = (next_point.cast<double>() - current_point.cast<double>());
-    if (dir_prev.norm() == 0)
-        dir_prev = dir_next;
-    if (dir_next.norm() == 0)
-        dir_next = dir_prev;
-    dir_prev.normalize();
-    dir_next.normalize();
-    Vec2d tangent = dir_prev + dir_next;
-    if (tangent.squaredNorm() < 1e-12)
-        tangent = dir_next;
-    tangent.normalize();
+    Vec2d tangent = (next_point.cast<double>() - current_point.cast<double>());
+    if (tangent.norm() == 0)
+        tangent = (current_point.cast<double>() - prev_point.cast<double>());
+    if (tangent.norm() != 0)
+        tangent.normalize();
 
     double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
     Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
@@ -4944,18 +4930,11 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* 
 
     Vec2d current_pos = current_point.cast<double>();
 
-    Vec2d dir_prev = (current_point.cast<double>() - prev_point.cast<double>());
-    Vec2d dir_next = (next_point.cast<double>() - current_point.cast<double>());
-    if (dir_prev.norm() == 0)
-        dir_prev = dir_next;
-    if (dir_next.norm() == 0)
-        dir_next = dir_prev;
-    dir_prev.normalize();
-    dir_next.normalize();
-    Vec2d tangent = dir_prev + dir_next;
-    if (tangent.squaredNorm() < 1e-12)
-        tangent = dir_prev;
-    tangent.normalize();
+    Vec2d tangent = (current_point.cast<double>() - prev_point.cast<double>());
+    if (tangent.norm() == 0)
+        tangent = (next_point.cast<double>() - current_point.cast<double>());
+    if (tangent.norm() != 0)
+        tangent.normalize();
 
     double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
     Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
