@@ -3657,6 +3657,7 @@ void GCodeGenerator::process_layer_single_object(
             m_config.apply(print_object.config(), true);
             m_layer = layer_to_print.layer();
             m_print_object_instance_id = static_cast<uint16_t>(print_args.print_instance.instance_id);
+            m_object_layer_to_print_id = static_cast<uint16_t>(print_args.print_instance.object_layer_to_print_id);
             const PrintInstance &instance = print_object.instances()[print_args.print_instance.instance_id];
             if (print.config().avoid_crossing_perimeters)
                 m_avoid_crossing_perimeters.init_layer(*m_layer);
@@ -4774,6 +4775,8 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, bool is_hole_
     inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm();
     gcode += this->_travel_before_extrude(inside_path, "perimeter inside start", speed);
     gcode += this->extrude_path(inside_path, "perimeter inside start", speed);
+    if (m_travel_obstacle_tracker.is_init())
+        m_travel_obstacle_tracker.mark_extruded(&inside_path, m_object_layer_to_print_id, m_print_object_instance_id);
 }
 
 void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
@@ -4806,6 +4809,8 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, bool is_hole_lo
     inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm();
     gcode += this->_travel_before_extrude(inside_path, "perimeter inside end", speed);
     gcode += this->extrude_path(inside_path, "perimeter inside end", speed);
+    if (m_travel_obstacle_tracker.is_init())
+        m_travel_obstacle_tracker.mark_extruded(&inside_path, m_object_layer_to_print_id, m_print_object_instance_id);
     this->set_last_pos(pt_inside);
 }
 
@@ -5847,6 +5852,7 @@ void GCodeGenerator::set_region_for_extrude(const Print &print, const PrintObjec
 void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const LayerIsland &island, std::string &gcode)
 {
     m_seam_perimeters = true;
+    m_object_layer_to_print_id = static_cast<uint16_t>(print_args.print_instance.object_layer_to_print_id);
     const LayerRegion &layerm = *layer()->get_region(island.perimeters.region());
     // PrintObjects own the PrintRegions, thus the pointer to PrintRegion would be unique to a PrintObject, they would not
     // identify the content of PrintRegion accross the whole print uniquely. Translate to a Print specific PrintRegion.
