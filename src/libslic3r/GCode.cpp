@@ -4744,6 +4744,45 @@ void GCodeGenerator::seam_notch(const ExtrusionLoop& original_loop,
     for(auto &e : notch_extrusion_end) assert(e.polyline.empty() || e.polyline.is_valid());
 }
 
+static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
+        bool is_hole_loop, bool is_full_loop_ccw,
+        double nozzle_diam, double setting_max_depth)
+{
+    if (paths.empty() || paths.front().size() < 2 || paths.back().size() < 2)
+        return 0;
+
+    Point current_point = paths.front().first_point();
+    Point next_point    = paths.front().polyline.get_point(1);
+    Point prev_point    = paths.back().polyline.get_point(paths.back().polyline.size() - 2);
+
+    Vec2d current_pos = current_point.cast<double>();
+
+    Vec2d dir_prev = (current_point.cast<double>() - prev_point.cast<double>());
+    Vec2d dir_next = (next_point.cast<double>() - current_point.cast<double>());
+    if (dir_prev.norm() == 0)
+        dir_prev = dir_next;
+    if (dir_next.norm() == 0)
+        dir_next = dir_prev;
+    dir_prev.normalize();
+    dir_next.normalize();
+    Vec2d tangent = dir_prev + dir_next;
+    if (tangent.squaredNorm() < 1e-12)
+        tangent = dir_next;
+    tangent.normalize();
+
+    double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
+    Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
+    normal.normalize();
+
+    coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
+    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
+        dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
+            [current_pos, normal](coord_t d)->Point {
+                return Point::round(current_pos + normal * d);
+            }));
+    return dist;
+}
+
 void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
 {
     if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty() || paths.front().size() < 2)
@@ -4969,7 +5008,18 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
             }
         }
     }
-    if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) && original_loop.role().is_perimeter() && !is_hole_loop && !building_paths.empty()) {
+    bool apply_inside = false;
+    coordf_t inside_dist = 0;
+    if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) &&
+        original_loop.role().is_perimeter() && !is_hole_loop && !building_paths.empty()) {
+        const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
+        inside_dist = compute_inside_distance_start(building_paths, is_hole_loop, is_full_loop_ccw,
+                                                   nozzle_diam, setting_max_depth);
+        coordf_t threshold = coordf_t(scale_t(setting_max_depth)) / 4;
+        if (inside_dist >= threshold)
+            apply_inside = true;
+    }
+    if (apply_inside) {
         double inset_factor = original_loop.role().is_external_perimeter() ? 0.5 : 1.5 * std::max<size_t>(1, perimeter_idx);
         coordf_t inset = scale_(building_paths.front().width() * inset_factor);
         if (inset > 0 && inset < full_loop_length / 2) {
@@ -5018,7 +5068,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
     coordf_t point_dist_for_vec = std::max(scale_t(nozzle_diam) / 100, scale_t(m_config.seam_gap.get_abs_value(m_writer.tool()->id(), nozzle_diam)) / 2);
     assert(point_dist_for_vec > 0);
 
-    if (original_loop.role().is_perimeter() && !is_hole_loop)
+    if (apply_inside)
         perimeter_inside_start(building_paths, is_hole_loop, is_full_loop_ccw, nozzle_diam, gcode, speed);
 
     // generate the unretracting/wipe start move (same thing than for the end, but on the other side)
@@ -5111,7 +5161,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         gcode += extrude_path(path, description, speed);
     }
 
-    if (original_loop.role().is_perimeter() && !is_hole_loop)
+    if (apply_inside)
         perimeter_inside_end(building_paths, is_hole_loop, is_full_loop_ccw, nozzle_diam, gcode, speed);
 
     // print seam tag with seam position (only for external perimeter & overhangs)
