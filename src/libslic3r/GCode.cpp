@@ -4821,7 +4821,7 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, bool is_hole_
     Point pt = Point::round(current_pos + normal * dist);
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ pt, current_point }), paths.front().attributes(), false);
-    inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm();
+    inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm() * 0.9;
     gcode += this->_travel_before_extrude(inside_path, "perimeter inside start", speed);
     gcode += this->extrude_path(inside_path, "perimeter inside start", speed);
 }
@@ -4864,7 +4864,7 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, bool is_hole_lo
     Point pt_inside = Point::round(current_pos + normal * dist);
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ current_point, pt_inside }), paths.back().attributes(), false);
-    inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm();
+    inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm() * 0.9;
     gcode += this->_travel_before_extrude(inside_path, "perimeter inside end", speed);
     gcode += this->extrude_path(inside_path, "perimeter inside end", speed);
     this->set_last_pos(pt_inside);
