@@ -474,6 +474,8 @@ private:
     uint32_t                            m_layer_with_support_count;
     // Progress bar indicator. Increments from -1 up to layer_count.
     int                                 m_layer_index;
+    // Sequential index of the current perimeter being printed within a layer
+    size_t                              m_perimeter_index{0};
     // Current layer processed. In sequential printing mode, only a single copy will be printed.
     // In non-sequential mode, all its copies will be printed.
     const Layer*                        m_layer;

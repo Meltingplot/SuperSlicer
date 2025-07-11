@@ -4908,6 +4908,9 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
     const Point seam_pos = loop_to_seam.first_point();
     const coordf_t full_loop_length = loop_to_seam.length();
     const bool is_full_loop_ccw = loop_to_seam.polygon().is_counter_clockwise();
+    size_t perimeter_idx = 0;
+    if (original_loop.role().is_perimeter())
+        perimeter_idx = m_perimeter_index++;
     //after that point, loop_to_seam can be modified by 'paths', so don't use it anymore
 #ifdef _DEBUG
     for (auto it = std::next(loop_to_seam.paths.begin()); it != loop_to_seam.paths.end(); ++it) {
@@ -4967,7 +4970,8 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         }
     }
     if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) && original_loop.role().is_perimeter() && !building_paths.empty()) {
-        coordf_t inset = scale_(building_paths.front().width() * (original_loop.role().is_external_perimeter() ? 0.5 : 1.5));
+        double inset_factor = original_loop.role().is_external_perimeter() ? 0.5 : 1.5 * std::max<size_t>(1, perimeter_idx);
+        coordf_t inset = scale_(building_paths.front().width() * inset_factor);
         if (inset > 0 && inset < full_loop_length / 2) {
             clip_start(building_paths, inset);
             clip_end(building_paths, inset);
@@ -5876,6 +5880,7 @@ void GCodeGenerator::set_region_for_extrude(const Print &print, const PrintObjec
 void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const LayerIsland &island, std::string &gcode)
 {
     m_seam_perimeters = true;
+    m_perimeter_index = 0;
     const LayerRegion &layerm = *layer()->get_region(island.perimeters.region());
     // PrintObjects own the PrintRegions, thus the pointer to PrintRegion would be unique to a PrintObject, they would not
     // identify the content of PrintRegion accross the whole print uniquely. Translate to a Print specific PrintRegion.
