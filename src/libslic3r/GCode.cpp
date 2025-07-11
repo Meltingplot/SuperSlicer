@@ -5086,7 +5086,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         // multiples of half a width moving inwards.
         size_t perims_cfg = m_region ? m_region->config().perimeters.value : 1;
         bool   outer_first = m_region ? m_region->config().external_perimeters_first.value : true;
-        double inset_factor = 0.5 * (outer_first ? double(perimeter_idx + 1)
+        double inset_factor = -0.5 + (outer_first ? double(perimeter_idx + 1)
                                                  : std::max(1.0, double(perims_cfg - perimeter_idx)));
         coordf_t inset = scale_(building_paths.front().width() * inset_factor);
         if (inset > 0 && inset < full_loop_length / 2) {
