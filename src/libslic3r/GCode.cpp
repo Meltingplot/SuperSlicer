@@ -4798,11 +4798,24 @@ static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
     normal.normalize();
 
     coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
-    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
+    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55) {
         dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
             [current_pos, normal](coord_t d)->Point {
                 return Point::round(current_pos + normal * d);
             }));
+        if (fallback_poly != nullptr && dist <= scale_d(nozzle_diam) / 2) {
+            ExtrusionPaths tmp_paths;
+            tmp_paths.emplace_back(paths.front());
+            tmp_paths.back().polyline.clear();
+            tmp_paths.back().polyline.append(fallback_poly->points.begin(), fallback_poly->points.end());
+            tmp_paths.back().polyline.append(fallback_poly->points.front());
+            coordf_t dist_poly = coordf_t(check_wipe::max_depth(tmp_paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
+                [current_pos, normal](coord_t d)->Point {
+                    return Point::round(current_pos + normal * d);
+                }));
+            dist = std::max(dist, dist_poly);
+        }
+    }
     if (dist <= 0)
         dist = scale_d(nozzle_diam) / 2;
     if (inside_pt != nullptr)
@@ -4856,11 +4869,24 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon
 
     const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
     coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
-    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
+    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55) {
         dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
             [current_pos, normal](coord_t dist)->Point {
                 return Point::round(current_pos + normal * dist);
             }));
+        if (fallback_poly != nullptr && dist <= scale_d(nozzle_diam) / 2) {
+            ExtrusionPaths tmp_paths;
+            tmp_paths.emplace_back(paths.front());
+            tmp_paths.back().polyline.clear();
+            tmp_paths.back().polyline.append(fallback_poly->points.begin(), fallback_poly->points.end());
+            tmp_paths.back().polyline.append(fallback_poly->points.front());
+            coordf_t dist_poly = coordf_t(check_wipe::max_depth(tmp_paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
+                [current_pos, normal](coord_t dist)->Point {
+                    return Point::round(current_pos + normal * dist);
+                }));
+            dist = std::max(dist, dist_poly);
+        }
+    }
     Point pt = Point::round(current_pos + normal * dist);
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ pt, current_point }), paths.front().attributes(), false);
@@ -4919,11 +4945,24 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* 
 
     const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
     coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
-    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55)
+    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55) {
         dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
             [current_pos, normal](coord_t dist)->Point {
                 return Point::round(current_pos + normal * dist);
             }));
+        if (fallback_poly != nullptr && dist <= scale_d(nozzle_diam) / 2) {
+            ExtrusionPaths tmp_paths;
+            tmp_paths.emplace_back(paths.front());
+            tmp_paths.back().polyline.clear();
+            tmp_paths.back().polyline.append(fallback_poly->points.begin(), fallback_poly->points.end());
+            tmp_paths.back().polyline.append(fallback_poly->points.front());
+            coordf_t dist_poly = coordf_t(check_wipe::max_depth(tmp_paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
+                [current_pos, normal](coord_t dist)->Point {
+                    return Point::round(current_pos + normal * dist);
+                }));
+            dist = std::max(dist, dist_poly);
+        }
+    }
     Point pt_inside = Point::round(current_pos + normal * dist);
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ current_point, pt_inside }), paths.back().attributes(), false);
