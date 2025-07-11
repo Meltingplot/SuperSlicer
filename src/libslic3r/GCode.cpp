@@ -5073,7 +5073,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
 
     // generate the unretracting/wipe start move (same thing than for the end, but on the other side)
     assert(!wipe_paths.empty() && wipe_paths.front().size() > 1 && !wipe_paths.back().empty());
-    if (EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_start, true) && !wipe_paths.empty() && wipe_paths.front().size() > 1 && wipe_paths.back().size() > 1 && wipe_paths.front().role().is_external_perimeter()) {
+    if (!apply_inside && EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_start, true) && !wipe_paths.empty() && wipe_paths.front().size() > 1 && wipe_paths.back().size() > 1 && wipe_paths.front().role().is_external_perimeter()) {
         //note: previous & next are inverted to extrude "in the opposite direction, as we are "rewinding"
         //Point previous_point = wipe_paths.back().polyline.points.back();
         Point previous_point = wipe_paths.front().polyline.get_point_from_begin(std::min(wipe_paths.front().polyline.length() / 2, point_dist_for_vec));
@@ -5321,7 +5321,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         Point pt_inside = Point::round(/*(nd >= vec_norm) ? next_pos : */ (current_pos + vec_dist * ( dist / (vec_norm * sin_a))));
         pt_inside.rotate(angle, current_point);
 
-        if (EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_end, true)) {
+        if (!apply_inside && EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_end, true)) {
             if (!m_wipe.is_enabled()) {
                 if (!start_wipe.empty()) {
                     gcode += start_wipe;
