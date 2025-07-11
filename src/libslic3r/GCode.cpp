@@ -40,6 +40,7 @@
 #include "Point.hpp"
 #include "Polygon.hpp"
 #include "Surface.hpp"
+#include "ExPolygon.hpp"
 #include "Geometry.hpp"
 #include "PrintConfig.hpp"
 #include "ShortestPath.hpp"
