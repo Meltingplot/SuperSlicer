@@ -4107,7 +4107,7 @@ std::string GCodeGenerator::extrude_loop_vase(const ExtrusionLoop &original_loop
 
     Point inward_point;
     //move the seam point inward a little bit
-    if ((m_config.extrude_perimeter_inside || EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_end, true)) && paths.back().role().is_external_perimeter() && m_layer != NULL &&
+    if ((EXTRUDER_CONFIG_WITH_DEFAULT(extrude_perimeter_inside, false) || EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_end, true)) && paths.back().role().is_external_perimeter() && m_layer != NULL &&
         m_config.perimeters.value > 1 && paths.front().size() >= 2 && paths.back().polyline.size() >= 3) {
         // detect angle between last and first segment
         // the side depends on the original winding order of the polygon (left for contours, right for holes)
@@ -4124,7 +4124,7 @@ std::string GCodeGenerator::extrude_loop_vase(const ExtrusionLoop &original_loop
                abs_angle(angle_ccw( a - paths.front().first_point(),b - paths.front().first_point())));
 #endif
         double angle;
-        if (m_config.extrude_perimeter_inside)
+        if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside))
             angle = reverse_turn ? -PI / 2. : PI / 2.;
         else {
             angle = abs_angle(angle_ccw(a - paths.front().first_point(),
@@ -4279,7 +4279,7 @@ std::string GCodeGenerator::extrude_loop_vase(const ExtrusionLoop &original_loop
         assert(ccw_angle_old_test(paths.front().first_point(), a, b) == abs_angle(angle_ccw( a - paths.front().first_point(),b - paths.front().first_point())));
 #endif
         double angle;
-        if (m_config.extrude_perimeter_inside)
+        if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside))
             angle = reverse_turn ? -PI / 2. : PI / 2.;
         else {
             angle = abs_angle(angle_ccw(a - paths.front().first_point(),
@@ -4929,7 +4929,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
 
     // generate the unretracting/wipe start move (same thing than for the end, but on the other side)
     assert(!wipe_paths.empty() && wipe_paths.front().size() > 1 && !wipe_paths.back().empty());
-    if ((m_config.extrude_perimeter_inside || EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_start, true)) && !wipe_paths.empty() && wipe_paths.front().size() > 1 && wipe_paths.back().size() > 1 && wipe_paths.front().role().is_external_perimeter()) {
+    if ((EXTRUDER_CONFIG_WITH_DEFAULT(extrude_perimeter_inside, false) || EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_start, true)) && !wipe_paths.empty() && wipe_paths.front().size() > 1 && wipe_paths.back().size() > 1 && wipe_paths.front().role().is_external_perimeter()) {
         //note: previous & next are inverted to extrude "in the opposite direction, as we are "rewinding"
         //Point previous_point = wipe_paths.back().polyline.points.back();
         Point previous_point = wipe_paths.front().polyline.get_point_from_begin(std::min(wipe_paths.front().polyline.length() / 2, point_dist_for_vec));
@@ -4950,7 +4950,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
             Point c = a; a = b; b = c;
         }
         double angle;
-        if (m_config.extrude_perimeter_inside)
+        if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside))
             angle = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? -PI / 2. : PI / 2.;
         else {
             angle = abs_angle(angle_ccw(a - current_point, b - current_point)) / 3;
@@ -4965,7 +4965,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         Vec2d  next_pos = next_point.cast<double>();
         Vec2d  vec_dist = next_pos - current_pos;
         double vec_norm = vec_dist.norm();
-        const double setting_max_depth = m_config.extrude_perimeter_inside
+        const double setting_max_depth = EXTRUDER_CONFIG_WITH_DEFAULT(extrude_perimeter_inside, false)
             ? m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id())
             : m_config.wipe_inside_depth.get_abs_value(m_writer.tool()->id(), nozzle_diam);
         coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2
@@ -4997,7 +4997,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         //this->set_last_pos(pt);
         // use extrude instead of travel_to_xy to trigger the unretract
         ExtrusionPath fake_path_wipe(ArcPolyline(Polyline{ pt , current_point }), wipe_paths.front().attributes(), wipe_paths.front().can_reverse());
-        if (m_config.extrude_perimeter_inside)
+        if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside))
             fake_path_wipe.attributes_mutable().mm3_per_mm = wipe_paths.front().mm3_per_mm();
         else
             fake_path_wipe.attributes_mutable().mm3_per_mm = 0;
@@ -5157,7 +5157,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         assert(is_approx(abs_angle(angle_ccw( a-current_point,b-current_point)), ccw_angle_old_test(current_point, a, b), 0.000000001));
 #endif
         double angle;
-        if (m_config.extrude_perimeter_inside)
+        if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside))
             angle = (is_hole_loop ? is_full_loop_ccw : (!is_full_loop_ccw)) ? -PI / 2. : PI / 2.;
         else {
             angle = abs_angle(angle_ccw(a - current_point, b - current_point)) / 3;
@@ -5174,7 +5174,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         const double vec_norm = vec_dist.norm();
         double sin_a    = std::abs(std::sin(angle));
         sin_a = std::max(0.1, sin_a);
-        const double setting_max_depth = m_config.extrude_perimeter_inside
+        const double setting_max_depth = EXTRUDER_CONFIG_WITH_DEFAULT(extrude_perimeter_inside, false)
             ? m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id())
             : m_config.wipe_inside_depth.get_abs_value(m_writer.tool()->id(), nozzle_diam);
         coordf_t dist   = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
@@ -5190,14 +5190,14 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         Point pt_inside = Point::round(/*(nd >= vec_norm) ? next_pos : */ (current_pos + vec_dist * ( dist / (vec_norm * sin_a))));
         pt_inside.rotate(angle, current_point);
 
-        if (m_config.extrude_perimeter_inside || EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_end, true)) {
+        if (EXTRUDER_CONFIG_WITH_DEFAULT(extrude_perimeter_inside, false) || EXTRUDER_CONFIG_WITH_DEFAULT(wipe_inside_end, true)) {
             if (!m_wipe.is_enabled()) {
                 if (!start_wipe.empty()) {
                     gcode += start_wipe;
                     start_wipe = "";
                 }
                 ExtrusionPath end_wipe(ArcPolyline(Polyline{ current_point, pt_inside }), wipe_paths.back().attributes(), wipe_paths.back().can_reverse());
-                if (m_config.extrude_perimeter_inside)
+                if (BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside))
                     end_wipe.attributes_mutable().mm3_per_mm = wipe_paths.back().mm3_per_mm();
                 else
                     end_wipe.attributes_mutable().mm3_per_mm = 0;
