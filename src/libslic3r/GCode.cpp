@@ -4774,8 +4774,14 @@ static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
         next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
         prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
     } else {
-        next_point = paths.front().polyline.get_point(1);
-        prev_point = paths.back().polyline.get_point(paths.back().polyline.size() - 2);
+        if (fallback_poly != nullptr && fallback_poly->size() >= 2) {
+            idx = fallback_poly->closest_point_index(current_point);
+            next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
+            prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
+        } else {
+            next_point = paths.front().size() >= 2 ? paths.front().polyline.get_point(1) : current_point;
+            prev_point = paths.back().size() >= 2 ? paths.back().polyline.get_point(paths.back().polyline.size() - 2) : current_point;
+        }
     }
 
     Vec2d current_pos = current_point.cast<double>();
@@ -4825,7 +4831,7 @@ static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
 
 void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
 {
-    if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty() || paths.front().size() < 2)
+    if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty())
         return;
 
     Point current_point = paths.front().first_point();
@@ -4844,8 +4850,14 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon
         next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
         prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
     } else {
-        next_point = paths.front().polyline.get_point(1);
-        prev_point = paths.back().polyline.get_point(paths.back().polyline.size() - 2);
+        if (fallback_poly != nullptr && fallback_poly->size() >= 2) {
+            idx = fallback_poly->closest_point_index(current_point);
+            next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
+            prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
+        } else {
+            next_point = paths.front().size() >= 2 ? paths.front().polyline.get_point(1) : current_point;
+            prev_point = paths.back().size() >= 2 ? paths.back().polyline.get_point(paths.back().polyline.size() - 2) : current_point;
+        }
     }
 
     Vec2d current_pos = current_point.cast<double>();
@@ -4901,7 +4913,7 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon
 
 void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
 {
-    if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty() || paths.back().size() < 2)
+    if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty())
         return;
 
     Point current_point = paths.back().last_point();
@@ -4920,8 +4932,14 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* 
         prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
         next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
     } else {
-        prev_point = paths.back().polyline.get_point(paths.back().polyline.size() - 2);
-        next_point = paths.front().polyline.get_point(1);
+        if (fallback_poly != nullptr && fallback_poly->size() >= 2) {
+            idx = fallback_poly->closest_point_index(current_point);
+            prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
+            next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
+        } else {
+            prev_point = paths.back().size() >= 2 ? paths.back().polyline.get_point(paths.back().polyline.size() - 2) : current_point;
+            next_point = paths.front().size() >= 2 ? paths.front().polyline.get_point(1) : current_point;
+        }
     }
 
     Vec2d current_pos = current_point.cast<double>();
