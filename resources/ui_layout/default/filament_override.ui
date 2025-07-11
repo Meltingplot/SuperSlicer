@@ -20,12 +20,14 @@ group:Retraction when tool is disabled
 group:Travel lift
 	setting:id$0:filament_wipe
 	setting:id$0:filament_retract_before_wipe
-	setting:id$0:filament_wipe_extra_perimeter
-	setting:id$0:filament_wipe_inside_depth
-	setting:id$0:filament_wipe_inside_end
-	setting:id$0:filament_wipe_inside_start
-	setting:id$0:filament_wipe_only_crossing
-	setting:id$0:filament_wipe_speed
-	setting:id$0:filament_wipe_lift
+        setting:id$0:filament_wipe_extra_perimeter
+        setting:id$0:filament_wipe_inside_depth
+        setting:id$0:filament_wipe_inside_end
+        setting:id$0:filament_wipe_inside_start
+        setting:id$0:filament_extrude_perimeter_inside
+        setting:id$0:filament_extrude_perimeter_inside_length
+        setting:id$0:filament_wipe_only_crossing
+        setting:id$0:filament_wipe_speed
+        setting:id$0:filament_wipe_lift
 group:Others
 	setting:id$0:filament_seam_gap
