@@ -474,9 +474,9 @@ private:
     uint32_t                            m_layer_with_support_count;
     // Progress bar indicator. Increments from -1 up to layer_count.
     int                                 m_layer_index;
-    // Sequential index of the current perimeter being printed within a layer
-    size_t                              m_perimeter_index{0};
+    // Seam positions from the previous layer and for the layer being processed
     std::vector<Point>                  m_last_seam_positions;
+    std::vector<Point>                  m_curr_seam_positions;
     bool                                m_apply_inside_layer{false};
     // Current object layer and instance index for obstacle tracking
     size_t                              m_current_object_layer_idx{0};
