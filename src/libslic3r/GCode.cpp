@@ -4838,28 +4838,6 @@ static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
     return dist;
 }
 
-coordf_t GCodeGenerator::limit_by_island(const Point& start, const Vec2d& normal, coordf_t dist) const
-{
-    if (m_current_island_polygons.empty() || dist <= 0)
-        return dist;
-
-    Point end = Point::round(start.cast<double>() + normal * dist);
-    Line  line(start, end);
-    double min_dist = dist;
-    for (const ExPolygon &ep : m_current_island_polygons) {
-        Points pts;
-        ep.contour.intersections(line, &pts);
-        for (const Polygon &h : ep.holes)
-            h.intersections(line, &pts);
-        for (const Point &ip : pts) {
-            double d = (ip.cast<double>() - start.cast<double>()).norm();
-            if (d > scaled<double>(0.0015) && d < min_dist)
-                min_dist = d;
-        }
-    }
-    return coordf_t(min_dist);
-}
-
 void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
 {
     if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty())
