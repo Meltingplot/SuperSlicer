@@ -5153,7 +5153,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         inside_dist = compute_inside_distance_start(building_paths, &loop_polygon,
                                                    is_hole_loop, is_full_loop_ccw,
                                                    nozzle_diam, setting_max_depth, &inside_point);
-        coordf_t threshold = scale_d(setting_max_depth) / 4;
+        coordf_t threshold = scale_d(nozzle_diam) * 2;
         bool cross_solid = false;
         if (!m_layer_solid_surfaces.empty()) {
             for (const ExPolygon &ep : m_layer_solid_surfaces) {
