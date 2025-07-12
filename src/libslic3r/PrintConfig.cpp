@@ -6853,6 +6853,24 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvancedE | comSuSi;
     def->is_vector_extruder = true;
     def->set_default_value(new ConfigOptionPercents{ 50 });
+
+    def = this->add("extrude_perimeter_inside", coBools);
+    def->label = L("Extrude perimeter inside");
+    def->category = OptionCategory::extruders;
+    def->tooltip = L("Extrude a short segment inside the object before starting and after finishing external perimeters.");
+    def->mode = comAdvancedE | comSuSi;
+    def->is_vector_extruder = true;
+    def->set_default_value(new ConfigOptionBools{ false });
+
+    def = this->add("extrude_perimeter_inside_length", coFloats);
+    def->label = L("Extrude inside length");
+    def->category = OptionCategory::extruders;
+    def->tooltip = L("Length of the inside extrusion segment for the perimeter start/end.");
+    def->sidetext = L("mm");
+    def->min = 0;
+    def->mode = comAdvancedE | comSuSi;
+    def->is_vector_extruder = true;
+    def->set_default_value(new ConfigOptionFloats{ 0.5f });
     
     def = this->add("wipe_lift", coFloatsOrPercents);
     def->label = L("Wipe lift");
@@ -7387,6 +7405,8 @@ void PrintConfigDef::init_extruder_option_keys()
     m_extruder_option_keys = {
         "default_filament_profile",
         "deretract_speed",
+        "extrude_perimeter_inside",
+        "extrude_perimeter_inside_length",
         "extruder_colour",
         "extruder_extrusion_multiplier_speed",
         "extruder_fan_offset",
@@ -7431,6 +7451,8 @@ void PrintConfigDef::init_extruder_option_keys()
 
     m_extruder_retract_keys = {
         "deretract_speed",
+        "extrude_perimeter_inside",
+        "extrude_perimeter_inside_length",
         "retract_before_travel",
         "retract_before_wipe",
         "retract_layer_change",
@@ -7465,6 +7487,8 @@ void PrintConfigDef::init_extruder_option_keys()
     assert(std::is_sorted(m_extruder_retract_keys.begin(), m_extruder_retract_keys.end()));
     m_filament_override_option_keys = {
         "deretract_speed",
+        "extrude_perimeter_inside",
+        "extrude_perimeter_inside_length",
         "retract_before_travel",
         "retract_before_wipe",
         "retract_layer_change",
