@@ -283,6 +283,7 @@ public:
 
 typedef std::vector<ExtrusionPath> ExtrusionPaths;
 ExtrusionPaths clip_end(ExtrusionPaths& paths, coordf_t distance);
+ExtrusionPaths clip_start(ExtrusionPaths& paths, coordf_t distance);
 
 class ExtrusionPath3D : public ExtrusionPath {
 protected:

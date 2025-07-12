@@ -379,6 +379,28 @@ ExtrusionPaths clip_end(ExtrusionPaths &paths, coordf_t distance)
     return removed;
 }
 
+ExtrusionPaths clip_start(ExtrusionPaths &paths, coordf_t distance)
+{
+    ExtrusionPaths removed;
+
+    while (distance > 0 && !paths.empty()) {
+        ExtrusionPath &first = paths.front();
+        removed.push_back(first);
+        coordf_t len = first.length();
+        if (len <= distance) {
+            paths.erase(paths.begin());
+            distance -= len;
+        } else {
+            first.polyline.clip_start(distance);
+            removed.back().polyline.clip_end(removed.back().polyline.length() - distance);
+            break;
+        }
+    }
+    for (auto &path : paths)
+        DEBUG_VISIT(path, LoopAssertVisitor())
+    return removed;
+}
+
 //bool ExtrusionLoop::has_overhang_point(const Point &point) const
 //{
 //    for (const ExtrusionPath &path : this->paths) {
