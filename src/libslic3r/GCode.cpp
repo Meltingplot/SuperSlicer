@@ -4051,7 +4051,8 @@ std::string GCodeGenerator::extrude_loop_vase(const ExtrusionLoop &original_loop
     bool is_hole_loop = (loop_to_seam.loop_role() & ExtrusionLoopRole::elrHole) != 0;// loop.make_counter_clockwise();
     bool reverse_turn = loop_to_seam.polygon().is_clockwise() ^ is_hole_loop;
 
-    split_at_seam_pos(loop_to_seam, reverse_turn);
+    split_at_seam_pos(loop_to_seam, reverse_turn, m_perimeter_index);
+    Point seam_pos = loop_to_seam.first_point();
     const coordf_t full_loop_length = loop_to_seam.length();
 
     // don't clip the path ?
@@ -4300,12 +4301,17 @@ std::string GCodeGenerator::extrude_loop_vase(const ExtrusionLoop &original_loop
         gcode += m_writer.travel_to_xy(this->point_to_gcode(inward_point), 0.0, "move inwards before travel");
     }
 
+    if (m_last_seam_positions.size() <= m_perimeter_index)
+        m_last_seam_positions.resize(m_perimeter_index + 1);
+    m_last_seam_positions[m_perimeter_index] = seam_pos;
+    ++m_perimeter_index;
+
     assert(!this->visitor_flipped);
     this->visitor_flipped = save_flipped;
     return gcode;
 }
 
-void GCodeGenerator::split_at_seam_pos(ExtrusionLoop& loop, bool was_clockwise)
+void GCodeGenerator::split_at_seam_pos(ExtrusionLoop& loop, bool was_clockwise, size_t perimeter_idx)
 {
     if (loop.paths.empty())
         return;
@@ -4358,6 +4364,23 @@ void GCodeGenerator::split_at_seam_pos(ExtrusionLoop& loop, bool was_clockwise)
             //m_print_object_instance_id,
             //lower_layer_edge_grid ? lower_layer_edge_grid->get() : nullptr
             );
+        if (perimeter_idx < m_last_seam_positions.size()) {
+            coord_t nozzle = scale_(EXTRUDER_CONFIG_WITH_DEFAULT(nozzle_diameter, 0.4));
+            if (nozzle > 0) {
+                coord_t max_jump = nozzle * 5;
+                coord_t max_delta = nozzle / 8;
+                const Point &prev = m_last_seam_positions[perimeter_idx];
+                coord_t dist = seam_point.distance_to(prev);
+                if (dist <= max_jump) {
+                    if (dist > max_delta) {
+                        Vec2d move = (seam_point.cast<double>() - prev.cast<double>()).normalized() * unscaled<double>(max_delta);
+                        seam_point = Point::round(prev.cast<double>() + move);
+                    } else {
+                        seam_point = prev;
+                    }
+                }
+            }
+        }
         // Because the G-code export has 1um resolution, don't generate segments shorter than "1.5 microns" (depends of gcode_precision_xyz)
         //FIXME use settings
         if (!loop.split_at_vertex(seam_point, scaled<double>(0.0015))) {
@@ -5073,13 +5096,11 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         for (int i = 1; i < path.polyline.size(); ++i)
             assert(!path.polyline.get_point(i - 1).coincides_with_epsilon(path.polyline.get_point(i)));
 
-    split_at_seam_pos(loop_to_seam, is_hole_loop);
+    split_at_seam_pos(loop_to_seam, is_hole_loop, m_perimeter_index);
     const Point seam_pos = loop_to_seam.first_point();
     const coordf_t full_loop_length = loop_to_seam.length();
     const bool is_full_loop_ccw = loop_to_seam.polygon().is_counter_clockwise();
-    size_t perimeter_idx = 0;
-    if ((original_loop.role().is_perimeter() || original_loop.role().is_mixed()) && !is_hole_loop)
-        perimeter_idx = m_perimeter_index++;
+    size_t perimeter_idx = m_perimeter_index;
     //after that point, loop_to_seam can be modified by 'paths', so don't use it anymore
 #ifdef _DEBUG
     for (auto it = std::next(loop_to_seam.paths.begin()); it != loop_to_seam.paths.end(); ++it) {
@@ -5671,6 +5692,12 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
             gcode += ";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Wipe_End) + "\n";
         }
     }
+    if ((original_loop.role().is_perimeter() || original_loop.role().is_mixed()) && !is_hole_loop) {
+        if (m_last_seam_positions.size() <= perimeter_idx)
+            m_last_seam_positions.resize(perimeter_idx + 1);
+        m_last_seam_positions[perimeter_idx] = seam_pos;
+        ++m_perimeter_index;
+    }
 stop_print_loop:
 
     assert(!this->visitor_flipped);
@@ -6086,6 +6113,8 @@ void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const Lay
     m_seam_perimeters = true;
     m_perimeter_index = 0;
     m_apply_inside_layer = false;
+    if (layer()->id() == 0)
+        m_last_seam_positions.clear();
     m_current_object_layer_idx = print_args.print_instance.object_layer_to_print_id;
     m_current_instance_idx     = print_args.print_instance.instance_id;
     m_layer_solid_surfaces.clear();

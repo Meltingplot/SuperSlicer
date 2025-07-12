@@ -305,7 +305,7 @@ private:
     std::string     extrude_path(const ExtrusionPath &path, const std::string_view description, double speed = -1.);
     std::string     extrude_path_3D(const ExtrusionPath3D &path, const std::string_view description, double speed = -1.);
 
-    void            split_at_seam_pos(ExtrusionLoop &loop, bool was_clockwise);
+    void            split_at_seam_pos(ExtrusionLoop &loop, bool was_clockwise, size_t perimeter_idx);
     template <typename THING = ExtrusionEntity> // can be templated safely because private
     void            add_wipe_points(const std::vector<THING>& paths, bool reverse, bool is_loop);
     void            seam_notch(const ExtrusionLoop& original_loop, ExtrusionPaths& building_paths,
@@ -476,6 +476,7 @@ private:
     int                                 m_layer_index;
     // Sequential index of the current perimeter being printed within a layer
     size_t                              m_perimeter_index{0};
+    std::vector<Point>                  m_last_seam_positions;
     bool                                m_apply_inside_layer{false};
     // Current object layer and instance index for obstacle tracking
     size_t                              m_current_object_layer_idx{0};
