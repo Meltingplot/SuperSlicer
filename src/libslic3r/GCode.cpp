@@ -4860,6 +4860,16 @@ coordf_t GCodeGenerator::limit_by_island(const Point& start, const Vec2d& normal
     return coordf_t(min_dist);
 }
 
+bool GCodeGenerator::line_inside_island(const Line& line) const
+{
+    if (m_current_island_polygons.empty())
+        return true;
+    for (const ExPolygon &ep : m_current_island_polygons)
+        if (ep.contains(line))
+            return true;
+    return false;
+}
+
 void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
 {
     if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty())
@@ -4934,6 +4944,9 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon
     }
     dist = limit_by_island(current_point, normal, dist);
     Point pt = Point::round(current_pos + normal * dist);
+
+    if (!line_inside_island(Line(current_point, pt)))
+        return;
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ pt, current_point }), paths.front().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm() * 0.9;
@@ -5019,6 +5032,9 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* 
     }
     dist = limit_by_island(current_point, normal, dist);
     Point pt_inside = Point::round(current_pos + normal * dist);
+
+    if (!line_inside_island(Line(current_point, pt_inside)))
+        return;
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ current_point, pt_inside }), paths.back().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm() * 0.9;
@@ -5184,6 +5200,8 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
                 normal_vec /= len;
                 inside_dist = limit_by_island(building_paths.front().first_point(), normal_vec, inside_dist);
                 inside_point = Point::round(building_paths.front().first_point().cast<double>() + normal_vec * inside_dist);
+                if (!line_inside_island(Line(building_paths.front().first_point(), inside_point)))
+                    inside_dist = 0;
             }
         }
         coordf_t threshold = scale_d(nozzle_diam) * 2;
