@@ -4860,19 +4860,6 @@ coordf_t GCodeGenerator::limit_by_island(const Point& start, const Vec2d& normal
     return coordf_t(min_dist);
 }
 
-bool GCodeGenerator::line_inside_island(const Line& line) const
-{
-    if (m_current_island_polygons.empty())
-        return true;
-    // The generic ExPolygon::contains(Line) may fail when the line starts or
-    // ends on the polygon boundary. Test the end points explicitly and rely on
-    // limit_by_island() to avoid crossing island borders.
-    for (const ExPolygon &ep : m_current_island_polygons)
-        if (ep.contains(line.a, true) && ep.contains(line.b, true))
-            return true;
-    return false;
-}
-
 void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
 {
     if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty())
@@ -4945,11 +4932,7 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon
             dist = std::max(dist, dist_poly);
         }
     }
-    dist = limit_by_island(current_point, normal, dist);
     Point pt = Point::round(current_pos + normal * dist);
-
-    if (!line_inside_island(Line(current_point, pt)))
-        return;
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ pt, current_point }), paths.front().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm() * 0.9;
@@ -5033,11 +5016,7 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* 
             dist = std::max(dist, dist_poly);
         }
     }
-    dist = limit_by_island(current_point, normal, dist);
     Point pt_inside = Point::round(current_pos + normal * dist);
-
-    if (!line_inside_island(Line(current_point, pt_inside)))
-        return;
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ current_point, pt_inside }), paths.back().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm() * 0.9;
@@ -5201,9 +5180,16 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
             double len = normal_vec.norm();
             if (len > 0) {
                 normal_vec /= len;
-                inside_dist = limit_by_island(building_paths.front().first_point(), normal_vec, inside_dist);
                 inside_point = Point::round(building_paths.front().first_point().cast<double>() + normal_vec * inside_dist);
-                if (!line_inside_island(Line(building_paths.front().first_point(), inside_point)))
+                bool is_inside = false;
+                for ( ExPolygon &ep : m_current_island_polygons) {
+                    // check if the point is inside the island polygons
+                    // if it is, we can apply the inside extrusion
+                    is_inside = ep.contains(inside_point, true);
+                    if (is_inside) break;
+                }
+                //original_loop.polygon().contains(inside_point);
+                if (!is_inside)
                     inside_dist = 0;
             }
         }

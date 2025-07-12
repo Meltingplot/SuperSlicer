@@ -313,7 +313,6 @@ private:
     void            perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed);
     void            perimeter_inside_end(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed);
     coordf_t        limit_by_island(const Point& start, const Vec2d& normal, coordf_t dist) const;
-    bool            line_inside_island(const Line& line) const;
 
 
 	struct InstanceToPrint
