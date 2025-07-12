@@ -4786,9 +4786,18 @@ static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
 
     Vec2d current_pos = current_point.cast<double>();
 
-    Vec2d tangent = (next_point.cast<double>() - current_point.cast<double>());
-    if (tangent.norm() == 0)
-        tangent = (current_point.cast<double>() - prev_point.cast<double>());
+    Vec2d vec_start = next_point.cast<double>() - current_point.cast<double>();
+    Vec2d vec_end   = current_point.cast<double>() - prev_point.cast<double>();
+    if (vec_start.norm() == 0)
+        vec_start = vec_end;
+    if (vec_end.norm() == 0)
+        vec_end = vec_start;
+    Vec2d tangent = vec_start;
+    if (vec_start.norm() != 0 && vec_end.norm() != 0) {
+        vec_start.normalize();
+        vec_end.normalize();
+        tangent = (vec_start + vec_end) / 2.0;
+    }
     if (tangent.norm() != 0)
         tangent.normalize();
 
@@ -4855,9 +4864,18 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon
 
     Vec2d current_pos = current_point.cast<double>();
 
-    Vec2d tangent = (next_point.cast<double>() - current_point.cast<double>());
-    if (tangent.norm() == 0)
-        tangent = (current_point.cast<double>() - prev_point.cast<double>());
+    Vec2d vec_start = next_point.cast<double>() - current_point.cast<double>();
+    Vec2d vec_end   = current_point.cast<double>() - prev_point.cast<double>();
+    if (vec_start.norm() == 0)
+        vec_start = vec_end;
+    if (vec_end.norm() == 0)
+        vec_end = vec_start;
+    Vec2d tangent = vec_start;
+    if (vec_start.norm() != 0 && vec_end.norm() != 0) {
+        vec_start.normalize();
+        vec_end.normalize();
+        tangent = (vec_start + vec_end) / 2.0;
+    }
     if (tangent.norm() != 0)
         tangent.normalize();
 
@@ -4930,9 +4948,18 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* 
 
     Vec2d current_pos = current_point.cast<double>();
 
-    Vec2d tangent = (current_point.cast<double>() - prev_point.cast<double>());
-    if (tangent.norm() == 0)
-        tangent = (next_point.cast<double>() - current_point.cast<double>());
+    Vec2d vec_end   = current_point.cast<double>() - prev_point.cast<double>();
+    Vec2d vec_start = next_point.cast<double>() - current_point.cast<double>();
+    if (vec_start.norm() == 0)
+        vec_start = vec_end;
+    if (vec_end.norm() == 0)
+        vec_end = vec_start;
+    Vec2d tangent = vec_end;
+    if (vec_start.norm() != 0 && vec_end.norm() != 0) {
+        vec_start.normalize();
+        vec_end.normalize();
+        tangent = (vec_start + vec_end) / 2.0;
+    }
     if (tangent.norm() != 0)
         tangent.normalize();
 
