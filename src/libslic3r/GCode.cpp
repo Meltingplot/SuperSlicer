@@ -4838,6 +4838,28 @@ static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
     return dist;
 }
 
+coordf_t GCodeGenerator::limit_by_island(const Point& start, const Vec2d& normal, coordf_t dist) const
+{
+    if (m_current_island_polygons.empty() || dist <= 0)
+        return dist;
+
+    Point end = Point::round(start.cast<double>() + normal * dist);
+    Line  line(start, end);
+    double min_dist = dist;
+    for (const ExPolygon &ep : m_current_island_polygons) {
+        Points pts;
+        ep.contour.intersections(line, &pts);
+        for (const Polygon &h : ep.holes)
+            h.intersections(line, &pts);
+        for (const Point &ip : pts) {
+            double d = (ip.cast<double>() - start.cast<double>()).norm();
+            if (d > scaled<double>(0.0015) && d < min_dist)
+                min_dist = d;
+        }
+    }
+    return coordf_t(min_dist);
+}
+
 void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
 {
     if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty())
@@ -4910,6 +4932,7 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon
             dist = std::max(dist, dist_poly);
         }
     }
+    dist = limit_by_island(current_point, normal, dist);
     Point pt = Point::round(current_pos + normal * dist);
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ pt, current_point }), paths.front().attributes(), false);
@@ -4994,6 +5017,7 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* 
             dist = std::max(dist, dist_poly);
         }
     }
+    dist = limit_by_island(current_point, normal, dist);
     Point pt_inside = Point::round(current_pos + normal * dist);
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{ current_point, pt_inside }), paths.back().attributes(), false);
@@ -5153,6 +5177,15 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         inside_dist = compute_inside_distance_start(building_paths, &loop_polygon,
                                                    is_hole_loop, is_full_loop_ccw,
                                                    nozzle_diam, setting_max_depth, &inside_point);
+        if (inside_dist > 0) {
+            Vec2d normal_vec = (inside_point.cast<double>() - building_paths.front().first_point().cast<double>());
+            double len = normal_vec.norm();
+            if (len > 0) {
+                normal_vec /= len;
+                inside_dist = limit_by_island(building_paths.front().first_point(), normal_vec, inside_dist);
+                inside_point = Point::round(building_paths.front().first_point().cast<double>() + normal_vec * inside_dist);
+            }
+        }
         coordf_t threshold = scale_d(nozzle_diam) * 2;
         bool cross_solid = false;
         if (!m_layer_solid_surfaces.empty()) {
@@ -6096,6 +6129,7 @@ void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const Lay
     m_current_object_layer_idx = print_args.print_instance.object_layer_to_print_id;
     m_current_instance_idx     = print_args.print_instance.instance_id;
     m_layer_solid_surfaces.clear();
+    m_current_island_polygons.clear();
     for (const LayerRegion *lr : layer()->regions()) {
         for (const Surface &srf : lr->fill_surfaces().surfaces) {
             if ((srf.surface_type & SurfaceType::stPosTop) != 0 ||
@@ -6106,6 +6140,14 @@ void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const Lay
     }
     if (!m_layer_solid_surfaces.empty())
         m_layer_solid_surfaces = union_ex(m_layer_solid_surfaces);
+    if (!island.fill_expolygons.empty()) {
+        const LayerRegion &fill_lr = *layer()->get_region(island.fill_expolygons_composite() ?
+            island.perimeters.region() : island.fill_region_id);
+        const ExPolygons &expolys = island.fill_expolygons_composite() ?
+            fill_lr.fill_expolygons_composite() : fill_lr.fill_expolygons();
+        for (uint32_t id : island.fill_expolygons)
+            m_current_island_polygons.push_back(expolys[id]);
+    }
     const LayerRegion &layerm = *layer()->get_region(island.perimeters.region());
     // PrintObjects own the PrintRegions, thus the pointer to PrintRegion would be unique to a PrintObject, they would not
     // identify the content of PrintRegion accross the whole print uniquely. Translate to a Print specific PrintRegion.
@@ -6161,6 +6203,7 @@ void GCodeGenerator::extrude_perimeters(const ExtrudeArgs &print_args, const Lay
     m_current_object_layer_idx = 0;
     m_current_instance_idx = 0;
     m_layer_solid_surfaces.clear();
+    m_current_island_polygons.clear();
 }
 
 // Chain the paths hierarchically by a greedy algorithm to minimize a travel distance.

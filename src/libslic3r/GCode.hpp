@@ -312,6 +312,7 @@ private:
         ExtrusionPaths& notch_extrusion_start, ExtrusionPaths& notch_extrusion_end, bool is_hole_loop, bool is_full_loop_ccw);
     void            perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed);
     void            perimeter_inside_end(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed);
+    coordf_t        limit_by_island(const Point& start, const Vec2d& normal, coordf_t dist) const;
 
 
 	struct InstanceToPrint
@@ -480,6 +481,7 @@ private:
     size_t                              m_current_object_layer_idx{0};
     size_t                              m_current_instance_idx{0};
     ExPolygons                         m_layer_solid_surfaces;
+    ExPolygons                         m_current_island_polygons;
     // Current layer processed. In sequential printing mode, only a single copy will be printed.
     // In non-sequential mode, all its copies will be printed.
     const Layer*                        m_layer;
