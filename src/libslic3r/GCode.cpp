@@ -4864,8 +4864,11 @@ bool GCodeGenerator::line_inside_island(const Line& line) const
 {
     if (m_current_island_polygons.empty())
         return true;
+    // The generic ExPolygon::contains(Line) may fail when the line starts or
+    // ends on the polygon boundary. Test the end points explicitly and rely on
+    // limit_by_island() to avoid crossing island borders.
     for (const ExPolygon &ep : m_current_island_polygons)
-        if (ep.contains(line))
+        if (ep.contains(line.a, true) && ep.contains(line.b, true))
             return true;
     return false;
 }
