@@ -5051,7 +5051,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
     const coordf_t full_loop_length = loop_to_seam.length();
     const bool is_full_loop_ccw = loop_to_seam.polygon().is_counter_clockwise();
     size_t perimeter_idx = 0;
-    if (original_loop.role().is_perimeter() && !is_hole_loop)
+    if ((original_loop.role().is_perimeter() || original_loop.role().is_mixed()) && !is_hole_loop)
         perimeter_idx = m_perimeter_index++;
     //after that point, loop_to_seam can be modified by 'paths', so don't use it anymore
 #ifdef _DEBUG
@@ -5115,7 +5115,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
     coordf_t inside_dist = 0;
     Point     inside_point;
     bool inside_setting = BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside);
-    if (inside_setting && original_loop.role().is_perimeter() && !is_hole_loop && !building_paths.empty()) {
+    if (inside_setting && (original_loop.role().is_perimeter() || original_loop.role().is_mixed()) && !is_hole_loop && !building_paths.empty()) {
         const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
         Polygon loop_polygon = original_loop.polygon();
         inside_dist = compute_inside_distance_start(building_paths, &loop_polygon,
