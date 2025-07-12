@@ -373,9 +373,36 @@ ExtrusionPaths clip_end(ExtrusionPaths &paths, coordf_t distance)
             break;
         }
     }
-    for(auto& path : paths)
+    for (auto &path : paths) {
         DEBUG_VISIT(path, LoopAssertVisitor())
+    }
+    // Reverse the removed paths to keep the order of the original paths.
     std::reverse(removed.begin(), removed.end());
+    return removed;
+}
+
+ExtrusionPaths clip_start(ExtrusionPaths &paths, coordf_t distance)
+{
+    ExtrusionPaths removed;
+
+    while (distance > 0 && !paths.empty()) {
+        ExtrusionPath &first = paths.front();
+        removed.push_back(first);
+        coordf_t len = first.length();
+        if (len <= distance) {
+            paths.erase(paths.begin());
+            distance -= len;
+        } else {
+            first.polyline.clip_start(distance);
+            removed.back().polyline.clip_end(removed.back().polyline.length() - distance);
+            break;
+        }
+    }
+    for (auto &path : paths) {
+        DEBUG_VISIT(path, LoopAssertVisitor())
+    }
+
+    // Ensure all code paths return 'removed' variable.
     return removed;
 }
 
@@ -591,11 +618,11 @@ void SimplifyVisitor::use(ExtrusionPath& path) {
     }
     assert(m_scaled_resolution >= SCALED_EPSILON);
     path.simplify(m_scaled_resolution, m_use_arc_fitting, scale_d(m_arc_fitting_tolearance->get_abs_value(path.width())));
-    for (int i = 1; i < path.polyline.size(); ++i)
+    for (size_t i = 1; i < path.polyline.size(); ++i)
         if (path.polyline.get_point(i - 1).coincides_with_epsilon(path.polyline.get_point(i))) {
             path.simplify(m_scaled_resolution, m_use_arc_fitting, scale_d(m_arc_fitting_tolearance->get_abs_value(path.width())));
         }
-    for (int i = 1; i < path.polyline.size(); ++i)
+    for (size_t i = 1; i < path.polyline.size(); ++i)
         assert(!path.polyline.get_point(i - 1).coincides_with_epsilon(path.polyline.get_point(i)));
 }
 void SimplifyVisitor::use(ExtrusionPath3D& path3D) {
