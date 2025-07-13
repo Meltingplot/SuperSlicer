@@ -4756,7 +4756,7 @@ void GCodeGenerator::seam_notch(const ExtrusionLoop& original_loop,
     for(auto &e : notch_extrusion_end) assert(e.polyline.empty() || e.polyline.is_valid());
 }
 
-static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
+coordf_t GCodeGenerator::compute_inside_distance_start(const ExtrusionPaths &paths,
         const Polygon* fallback_poly,
         bool is_hole_loop, bool is_full_loop_ccw,
         double nozzle_diam, double setting_max_depth,
@@ -4835,6 +4835,7 @@ static coordf_t compute_inside_distance_start(const ExtrusionPaths& paths,
         dist = scale_d(nozzle_diam) / 2;
     if (inside_pt != nullptr)
         *inside_pt = Point::round(current_pos + normal * dist);
+
     return dist;
 }
 
@@ -4912,14 +4913,12 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon
     }
     Point pt = Point::round(current_pos + normal * dist);
 
-    ExtrusionPath inside_path(ArcPolyline(Polyline{ pt, current_point }), paths.front().attributes(), false);
+    ExtrusionPath inside_path(ArcPolyline(Polyline{pt, current_point}), paths.front().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm() * 0.9;
     gcode += this->_travel_before_extrude(inside_path, "perimeter inside start", speed);
     gcode += this->extrude_path(inside_path, "perimeter inside start", speed);
     if (m_travel_obstacle_tracker.is_init())
-        m_travel_obstacle_tracker.mark_extruded(&inside_path,
-                                                m_current_object_layer_idx,
-                                                m_current_instance_idx);
+        m_travel_obstacle_tracker.mark_extruded(&inside_path, m_current_object_layer_idx, m_current_instance_idx);
 }
 
 void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
@@ -4996,14 +4995,12 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* 
     }
     Point pt_inside = Point::round(current_pos + normal * dist);
 
-    ExtrusionPath inside_path(ArcPolyline(Polyline{ current_point, pt_inside }), paths.back().attributes(), false);
+    ExtrusionPath inside_path(ArcPolyline(Polyline{current_point, pt_inside}), paths.back().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm() * 0.9;
     gcode += this->_travel_before_extrude(inside_path, "perimeter inside end", speed);
     gcode += this->extrude_path(inside_path, "perimeter inside end", speed);
     if (m_travel_obstacle_tracker.is_init())
-        m_travel_obstacle_tracker.mark_extruded(&inside_path,
-                                                m_current_object_layer_idx,
-                                                m_current_instance_idx);
+        m_travel_obstacle_tracker.mark_extruded(&inside_path, m_current_object_layer_idx, m_current_instance_idx);
     this->set_last_pos(pt_inside);
 }
 
@@ -5163,7 +5160,10 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
                 for ( ExPolygon &ep : m_current_island_polygons) {
                     // check if the point is inside the island polygons
                     // if it is, we can apply the inside extrusion
-                    is_inside = ep.contains(inside_point, true);
+                    // move the start point 2* the nozzle diameter inside the loop
+                    Point start_point = Point::round(building_paths.front().first_point().cast<double>() + normal_vec * scale_d(nozzle_diam) * 2);
+                    Polyline inside_polyline = Polyline{start_point, inside_point};
+                    is_inside = ep.contains(inside_polyline);
                     if (is_inside) break;
                 }
                 //original_loop.polygon().contains(inside_point);
@@ -5183,6 +5183,8 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
         }
         if (inside_dist >= threshold && !cross_solid)
             m_apply_inside_layer = true;
+        else
+            m_apply_inside_layer = false;
         apply_inside = m_apply_inside_layer && !cross_solid;
     }
     if (apply_inside) {

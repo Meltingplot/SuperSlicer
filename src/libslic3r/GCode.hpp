@@ -309,7 +309,17 @@ private:
     template <typename THING = ExtrusionEntity> // can be templated safely because private
     void            add_wipe_points(const std::vector<THING>& paths, bool reverse, bool is_loop);
     void            seam_notch(const ExtrusionLoop& original_loop, ExtrusionPaths& building_paths,
-        ExtrusionPaths& notch_extrusion_start, ExtrusionPaths& notch_extrusion_end, bool is_hole_loop, bool is_full_loop_ccw);
+                    ExtrusionPaths &notch_extrusion_start,
+                    ExtrusionPaths &notch_extrusion_end,
+                    bool is_hole_loop,
+                    bool is_full_loop_ccw);
+    coordf_t compute_inside_distance_start(const ExtrusionPaths &paths,
+                                           const Polygon *fallback_poly,
+                                           bool is_hole_loop,
+                                           bool is_full_loop_ccw,
+                                           double nozzle_diam,
+                                           double setting_max_depth,
+                                           Point *inside_pt);
     void            perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed);
     void            perimeter_inside_end(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed);
 
