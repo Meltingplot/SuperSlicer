@@ -797,6 +797,8 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloatOrPercent,       seam_notch_inner))
     ((ConfigOptionFloatOrPercent,       seam_notch_outer))
     ((ConfigOptionBool,                 seam_visibility))
+    ((ConfigOptionBool,                 seam_avoid_overhangs))
+    ((ConfigOptionPercent,              seam_overhang_cost))
 //    ((ConfigOptionFloat,                seam_preferred_direction))
 //    ((ConfigOptionFloat,                seam_preferred_direction_jitter))
     ((ConfigOptionFloat,                slice_closing_radius))

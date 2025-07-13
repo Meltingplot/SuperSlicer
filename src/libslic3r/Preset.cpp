@@ -520,6 +520,8 @@ static std::vector<std::string> s_Preset_print_options {
         "seam_notch_outer",
         "seam_travel_cost",
         "seam_visibility",
+        "seam_avoid_overhangs",
+        "seam_overhang_cost",
         "staggered_inner_seams",
         // external_perimeters
         "external_perimeters_first",
