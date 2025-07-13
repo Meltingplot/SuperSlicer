@@ -949,6 +949,7 @@ struct SeamComparator {
     float angle_importance = 1.f;
     float travel_importance = 1.f;
     float visibility_importance = 1.f;
+    float overhang_importance = 1.f;
     Point seam_mod_pos;
     explicit SeamComparator(SeamPosition setup, const PrintObject& po) :
             setup(setup) {
@@ -966,6 +967,10 @@ struct SeamComparator {
         visibility_importance = (po.config().seam_visibility.value &&
                                  po.config().seam_position.value == SeamPosition::spCost) ?
                                     1.f :
+                                    0.f;
+        overhang_importance = (po.config().seam_avoid_overhangs.value &&
+                               po.config().seam_position.value == SeamPosition::spCost) ?
+                                    (float)po.config().seam_overhang_cost.get_abs_value(1.f) :
                                     0.f;
     }
 
@@ -1013,11 +1018,11 @@ struct SeamComparator {
         }
 
         // the penalites are kept close to range [0-1.x] however, it should not be relied upon
-        float penalty_a = overhang_penalty_a
+        float penalty_a = overhang_importance * overhang_penalty_a
                 + visibility_importance * a.visibility
                 + angle_importance * compute_angle_penalty(a.local_ccw_angle)
                 + travel_importance * distance_penalty_a;
-        float penalty_b = overhang_penalty_b
+        float penalty_b = overhang_importance * overhang_penalty_b
                 + visibility_importance * b.visibility
                 + angle_importance * compute_angle_penalty(b.local_ccw_angle)
                 + travel_importance * distance_penalty_b;
@@ -1048,8 +1053,9 @@ struct SeamComparator {
         }
 
         //avoid overhangs
-        if ((a.overhang > 0.0f || b.overhang > 0.0f)
-                && abs(a.overhang - b.overhang) > (0.1f * a.perimeter.flow_width)) {
+        if (overhang_importance > 0.f &&
+            (a.overhang > 0.0f || b.overhang > 0.0f) &&
+            abs(a.overhang - b.overhang) > (0.1f * a.perimeter.flow_width)) {
             return a.overhang < b.overhang;
         }
 
@@ -1069,9 +1075,9 @@ struct SeamComparator {
             return a.position.y() + SeamPlacer::seam_align_score_tolerance * 5.0f > b.position.y();
         }
 
-        float penalty_a = a.overhang + a.visibility
+        float penalty_a = overhang_importance * a.overhang + a.visibility
                 + angle_importance * compute_angle_penalty(a.local_ccw_angle);
-        float penalty_b = b.overhang + b.visibility +
+        float penalty_b = overhang_importance * b.overhang + b.visibility +
                 angle_importance * compute_angle_penalty(b.local_ccw_angle);
 
         return penalty_a <= penalty_b || penalty_a - penalty_b < SeamPlacer::seam_align_score_tolerance;

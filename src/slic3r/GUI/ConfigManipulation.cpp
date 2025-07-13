@@ -397,7 +397,8 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig* config)
     for (auto el : { "thin_walls_min_width", "thin_walls_overlap", "thin_walls_merge" })
         toggle_field(el, have_thin_wall && config->opt_bool("thin_walls"));
 
-    for (auto el : { "seam_angle_cost", "seam_travel_cost", "seam_visibility" })
+    for (auto el : { "seam_angle_cost", "seam_travel_cost", "seam_visibility",
+                      "seam_avoid_overhangs", "seam_overhang_cost" })
         toggle_field(el, have_perimeters && config->option<ConfigOptionEnum<SeamPosition>>("seam_position")->value == SeamPosition::spCost);
 
     toggle_field("perimeter_loop_seam", have_perimeter_loop);

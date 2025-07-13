@@ -499,6 +499,25 @@ void PrintConfigDef::init_common_params()
     def->mode = comExpert | comSuSi;
     def->set_default_value(new ConfigOptionBool(true));
 
+    def = this->add("seam_avoid_overhangs", coBool);
+    def->label = L("avoid overhangs");
+    def->full_label = L("Avoid overhangs during seam placement");
+    def->category = OptionCategory::perimeter;
+    def->tooltip = L("When enabled, seam points located on overhang perimeters are penalized.");
+    def->mode = comExpert | comSuSi;
+    def->set_default_value(new ConfigOptionBool(true));
+
+    def = this->add("seam_overhang_cost", coPercent);
+    def->label = L("Overhang cost");
+    def->full_label = L("Seam overhang cost");
+    def->category = OptionCategory::perimeter;
+    def->tooltip = L("Strength of the penalty applied to seam points located on overhangs.");
+    def->sidetext = L("%");
+    def->min = 0;
+    def->max = 1000;
+    def->mode = comExpert | comSuSi;
+    def->set_default_value(new ConfigOptionPercent(100));
+
     def = this->add("thumbnails_format", coEnum);
     def->label = L("Format of G-code thumbnails");
     def->tooltip = L("Format of G-code thumbnails: PNG for best quality, JPG for smallest size, QOI for low memory firmware");
@@ -10030,6 +10049,8 @@ std::unordered_set<std::string> prusa_export_to_remove_keys = {
 "seam_notch_outer",
 "seam_travel_cost",
 "seam_visibility",
+"seam_avoid_overhangs",
+"seam_overhang_cost",
 "skirt_brim",
 "skirt_distance_from_brim",
 "skirt_extrusion_width",
