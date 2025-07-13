@@ -4831,7 +4831,21 @@ coordf_t GCodeGenerator::compute_inside_distance_start(const ExtrusionPaths &pat
             dist = std::max(dist, dist_poly);
         }
     }
-    if (dist <= 0)
+
+    //if (dist > scale_d(nozzle_diam) * 2) {
+    //    Vec2d start_norm = vec_start.cast<double>();
+    //    Vec2d end_norm = vec_end.cast<double>();
+    //    if (start_norm.norm() != 0)
+    //        start_norm.normalize();
+    //    if (end_norm.norm() != 0)
+    //        end_norm.normalize();
+    //    double dot = start_norm.dot(end_norm);
+    //    if (dot >= std::cos(M_PI / 4.0)  || dot < std::cos(3.0 * M_PI / 4.0)) {
+    //        dist = 0;
+    //    }
+    //}
+
+    if (dist < 0)
         dist = scale_d(nozzle_diam) / 2;
     if (inside_pt != nullptr)
         *inside_pt = Point::round(current_pos + normal * dist);
@@ -4912,6 +4926,24 @@ void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon
         }
     }
     Point pt = Point::round(current_pos + normal * dist);
+
+    // Ensure the inside extrusion stays inside the current island polygons
+    {
+        Vec2d normal_vec = (pt.cast<double>() - current_point.cast<double>());
+        double len = normal_vec.norm();
+        bool is_inside = false;
+        if (len > 0) {
+            normal_vec /= len;
+            Point start_point = Point::round(current_point.cast<double>() + normal_vec * scale_d(nozzle_diam) * 2);
+            Polyline inside_polyline{start_point, pt};
+            for (ExPolygon &ep : m_current_island_polygons) {
+                if ((is_inside = ep.contains(inside_polyline)))
+                    break;
+            }
+        }
+        if (!is_inside)
+            return;
+    }
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{pt, current_point}), paths.front().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm() * 0.9;
@@ -4994,6 +5026,24 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* 
         }
     }
     Point pt_inside = Point::round(current_pos + normal * dist);
+
+    // Ensure the inside extrusion stays inside the current island polygons
+    {
+        Vec2d normal_vec = (pt_inside.cast<double>() - current_point.cast<double>());
+        double len = normal_vec.norm();
+        bool is_inside = false;
+        if (len > 0) {
+            normal_vec /= len;
+            Point start_point = Point::round(current_point.cast<double>() + normal_vec * scale_d(nozzle_diam) * 2);
+            Polyline inside_polyline{start_point, pt_inside};
+            for (ExPolygon &ep : m_current_island_polygons) {
+                if ((is_inside = ep.contains(inside_polyline)))
+                    break;
+            }
+        }
+        if (!is_inside)
+            return;
+    }
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{current_point, pt_inside}), paths.back().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm() * 0.9;
@@ -5151,7 +5201,8 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
                                                    is_hole_loop, is_full_loop_ccw,
                                                    nozzle_diam, setting_max_depth, &inside_point);
         if (inside_dist > 0) {
-            Vec2d normal_vec = (inside_point.cast<double>() - building_paths.front().first_point().cast<double>());
+            Point moved_start = building_paths.front().first_point();
+            Vec2d normal_vec = (inside_point.cast<double>() - moved_start.cast<double>());
             double len = normal_vec.norm();
             if (len > 0) {
                 normal_vec /= len;
