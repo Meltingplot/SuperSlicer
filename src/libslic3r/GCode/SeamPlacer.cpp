@@ -468,6 +468,31 @@ PolylineWithEnds extract_perimeter_polylines(const Layer *layer, bool allow_over
               polylines(polys), allow_overhang_seams(allow_overhang) {
         }
         virtual void default_use(const ExtrusionEntity& entity) {};
+        static void oversample_overhang(const ExtrusionPath &path, Points &pts, bool enable)
+        {
+            if (!enable || !path.role().is_overhang() || pts.size() < 2)
+                return;
+
+            Points oversampled;
+            oversampled.reserve(pts.size() * 2);
+            for (size_t i = 0; i < pts.size() - 1; ++i) {
+                Point p1 = pts[i];
+                Point p2 = pts[i + 1];
+                oversampled.push_back(p1);
+                double seg_len = (unscale(p1) - unscale(p2)).norm();
+                double step = path.width();
+                if (step > 0.0 && seg_len > step) {
+                    Vec2f dir = (unscale(p2) - unscale(p1)).cast<float>();
+                    for (double d = step; d < seg_len; d += step) {
+                        Vec2f mid = unscale(p1).cast<float>() + dir * float(d / seg_len);
+                        oversampled.emplace_back(Point::new_scale(mid.x(), mid.y()));
+                    }
+                }
+            }
+            oversampled.push_back(pts.back());
+            pts.swap(oversampled);
+        }
+
         virtual void use(const ExtrusionPath &path) override {
             if (path.attributes().no_seam && !(allow_overhang_seams && path.role().is_overhang()))
                 return;
@@ -479,26 +504,7 @@ PolylineWithEnds extract_perimeter_polylines(const Layer *layer, bool allow_over
                 assert(m_corresponding_regions_out.size() == polylines->size());
 
                 Points pts = path.polyline.to_polyline().points;
-                if (allow_overhang_seams && path.role().is_overhang() && pts.size() >= 2) {
-                    Points oversampled;
-                    oversampled.reserve(pts.size() * 2);
-                    for (size_t i = 0; i < pts.size() - 1; ++i) {
-                        Point p1 = pts[i];
-                        Point p2 = pts[i + 1];
-                        oversampled.push_back(p1);
-                        double seg_len = (unscale(p1) - unscale(p2)).norm();
-                        double step = path.width();
-                        if (step > 0.0 && seg_len > step) {
-                            Vec2f dir = (unscale(p2) - unscale(p1)).cast<float>();
-                            for (double d = step; d < seg_len; d += step) {
-                                Vec2f mid = unscale(p1).cast<float>() + dir * float(d / seg_len);
-                                oversampled.emplace_back(Point::new_scale(mid.x(), mid.y()));
-                            }
-                        }
-                    }
-                    oversampled.push_back(pts.back());
-                    pts.swap(oversampled);
-                }
+                oversample_overhang(path, pts, allow_overhang_seams);
 
                 polylines->emplace_back(std::move(pts), true, true, PolylineWithEnd::PolyDir::BOTH);
                 assert(path.polyline.front() != path.polyline.back());
@@ -540,6 +546,7 @@ PolylineWithEnds extract_perimeter_polylines(const Layer *layer, bool allow_over
                                     polys.back().points.pop_back();
                                 }
                                 path.collect_points(polys.back().points);
+                                oversample_overhang(path, polys.back().points, allow_overhang_seams);
                                 assert(polys.back().size() > 1);
                                 current_collected = true;
                                 count_paths_collected++;
@@ -574,7 +581,9 @@ PolylineWithEnds extract_perimeter_polylines(const Layer *layer, bool allow_over
                 for (size_t idx = 0; idx < collection.size(); idx++) {
                     const ExtrusionPath &path = collection.paths[idx];
                     assert(m_corresponding_regions_out.size() == polylines->size());
-                    polylines->emplace_back(path.polyline.to_polyline().points,
+                    Points pts = path.polyline.to_polyline().points;
+                    oversample_overhang(path, pts, allow_overhang_seams);
+                    polylines->emplace_back(std::move(pts),
                                             idx == 0 ? true : false,
                                             idx + 1 < collection.size() ? false : true,
                                             PolylineWithEnd::PolyDir::BOTH); // TODO: more points for arcs
@@ -590,7 +599,9 @@ PolylineWithEnds extract_perimeter_polylines(const Layer *layer, bool allow_over
                 for (size_t idx = 0; idx < collection.size(); idx++) {
                     const ExtrusionPath3D &path = collection.paths[idx];
                     assert(m_corresponding_regions_out.size() == polylines->size());
-                    polylines->emplace_back(path.polyline.to_polyline().points,
+                    Points pts = path.polyline.to_polyline().points;
+                    oversample_overhang(path, pts, allow_overhang_seams);
+                    polylines->emplace_back(std::move(pts),
                                             idx == 0 ? true : false,
                                             idx + 1 < collection.size() ? false : true,
                                             PolylineWithEnd::PolyDir::BOTH); // TODO: more points for arcs
