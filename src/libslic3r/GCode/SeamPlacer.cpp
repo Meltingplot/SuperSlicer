@@ -476,15 +476,34 @@ PolylineWithEnds extract_perimeter_polylines(const Layer *layer, bool allow_over
                 (perimeter_type == PerimeterGeneratorType::Arachne && path.role() != ExtrusionRole::ThinWall && !path.role().is_overhang()) ||
                 (also_thin_walls && path.role().has(ERM_Thin)) ||
                 (also_overhangs && path.role().is_overhang())) {
-                //path.polygons_covered_by_width(*polygons, SCALED_EPSILON);
                 assert(m_corresponding_regions_out.size() == polylines->size());
-                //if path, start at one end. so only two points allowed.
-                polylines->emplace_back(path.polyline.to_polyline().points, true, true, PolylineWithEnd::PolyDir::BOTH);
+
+                Points pts = path.polyline.to_polyline().points;
+                if (allow_overhang_seams && path.role().is_overhang() && pts.size() >= 2) {
+                    Points oversampled;
+                    oversampled.reserve(pts.size() * 2);
+                    for (size_t i = 0; i < pts.size() - 1; ++i) {
+                        Point p1 = pts[i];
+                        Point p2 = pts[i + 1];
+                        oversampled.push_back(p1);
+                        double seg_len = (unscale(p1) - unscale(p2)).norm();
+                        double step = path.width();
+                        if (step > 0.0 && seg_len > step) {
+                            Vec2f dir = (unscale(p2) - unscale(p1)).cast<float>();
+                            for (double d = step; d < seg_len; d += step) {
+                                Vec2f mid = unscale(p1).cast<float>() + dir * float(d / seg_len);
+                                oversampled.emplace_back(Point::new_scale(mid.x(), mid.y()));
+                            }
+                        }
+                    }
+                    oversampled.push_back(pts.back());
+                    pts.swap(oversampled);
+                }
+
+                polylines->emplace_back(std::move(pts), true, true, PolylineWithEnd::PolyDir::BOTH);
                 assert(path.polyline.front() != path.polyline.back());
                 assert(path.polyline.size() > 1);
-                //while (m_corresponding_regions_out->size() < polylines->size()) {
-                    m_corresponding_regions_out.push_back(current_layer_region);
-                //}
+                m_corresponding_regions_out.push_back(current_layer_region);
             }
         }
         virtual void use(const ExtrusionPath3D &path3D) override {
