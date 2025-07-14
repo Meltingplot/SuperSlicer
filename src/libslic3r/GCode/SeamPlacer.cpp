@@ -990,8 +990,9 @@ struct SeamComparator {
         //avoid overhangs
         float overhang_penalty_a = 0.f;
         float overhang_penalty_b = 0.f;
-        if ((a.overhang > a.perimeter.flow_width / 4 && b.overhang == 0.0f) ||
-            (b.overhang > b.perimeter.flow_width / 4 && a.overhang == 0.0f)) {
+        if (overhang_importance > 0.f &&
+            ((a.overhang > a.perimeter.flow_width / 4 && b.overhang == 0.0f) ||
+             (b.overhang > b.perimeter.flow_width / 4 && a.overhang == 0.0f))) {
             return a.overhang < b.overhang;
         } else if (a.overhang > 0 || b.overhang > 0) {
             overhang_penalty_a = std::clamp(2 * (a.overhang - a.perimeter.flow_width / 8) / a.perimeter.flow_width, 0.f, 3.f);
