@@ -445,7 +445,8 @@ struct GlobalModelInfo {
 }
 ;
 //Extract perimeter polylines of the given layer
-PolylineWithEnds extract_perimeter_polylines(const Layer *layer, const SeamPosition configured_seam_preference,
+PolylineWithEnds extract_perimeter_polylines(const Layer *layer, bool allow_overhang_seams,
+        const SeamPosition configured_seam_preference,
         std::vector<const LayerRegion*> &corresponding_regions_out) {
     
 
@@ -456,16 +457,20 @@ PolylineWithEnds extract_perimeter_polylines(const Layer *layer, const SeamPosit
         const LayerRegion* current_layer_region;
         SeamPosition configured_seam_preference;
         PerimeterGeneratorType perimeter_type = PerimeterGeneratorType::Classic;
+        bool allow_overhang_seams;
     public:
         // set to true to resolve some issues. when overhangs cut a loop in two, it can fail to go to the right spot.
         bool also_overhangs = true; // false;
         bool also_thin_walls = false;
-        PerimeterCopy(std::vector<const LayerRegion*>& regions_out, PolylineWithEnds* polys, SeamPosition configured_seam)
-            : m_corresponding_regions_out(regions_out), configured_seam_preference(configured_seam), polylines(polys) {
+        PerimeterCopy(std::vector<const LayerRegion*>& regions_out, PolylineWithEnds* polys,
+                     SeamPosition configured_seam, bool allow_overhang)
+            : m_corresponding_regions_out(regions_out), configured_seam_preference(configured_seam),
+              polylines(polys), allow_overhang_seams(allow_overhang) {
         }
         virtual void default_use(const ExtrusionEntity& entity) {};
         virtual void use(const ExtrusionPath &path) override {
-            if(path.attributes().no_seam) return;
+            if (path.attributes().no_seam && !(allow_overhang_seams && path.role().is_overhang()))
+                return;
             if (
                 // path: first case: Arachne, second case: ThinWall/gapfill, third case: extra overhangs
                 (perimeter_type == PerimeterGeneratorType::Arachne && path.role() != ExtrusionRole::ThinWall && !path.role().is_overhang()) ||
@@ -588,7 +593,7 @@ PolylineWithEnds extract_perimeter_polylines(const Layer *layer, const SeamPosit
                 this->perimeter_type = current_layer_region->region().config().perimeter_generator.value;
             }
         }
-    } visitor(corresponding_regions_out, &polylines, configured_seam_preference);
+    } visitor(corresponding_regions_out, &polylines, configured_seam_preference, allow_overhang_seams);
 
     for (const LayerRegion *layer_region : layer->regions()) {
         for (const ExtrusionEntity *ex_entity : layer_region->perimeters()) {
@@ -1263,7 +1268,9 @@ void SeamPlacer::gather_seam_candidates(const PrintObject *po, const SeamPlacerI
                     auto unscaled_z = layer->slice_z;
                     std::vector<const LayerRegion*> regions;
                     //NOTE corresponding region ptr may be null, if the layer has zero perimeters
-                    PolylineWithEnds polygons_and_lines = extract_perimeter_polylines(layer, configured_seam_preference, regions);
+                    bool allow_overhang_seams = !po->config().seam_avoid_overhangs.value;
+                    PolylineWithEnds polygons_and_lines = extract_perimeter_polylines(
+                        layer, allow_overhang_seams, configured_seam_preference, regions);
                     for (size_t poly_index = 0; poly_index < polygons_and_lines.size(); ++poly_index) {
                         process_perimeter_polylines(polygons_and_lines[poly_index], unscaled_z,
                                 regions[poly_index], global_model_info, layer_seams);
