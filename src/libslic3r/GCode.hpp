@@ -137,6 +137,10 @@ public:
     bool            last_pos_defined() const { return m_last_pos.has_value(); }
     void            set_last_pos(const Point &pos) { m_last_pos = pos; }
     void            unset_last_pos() { m_last_pos.reset(); }
+    const Point&    last_seam_pos() const { assert(m_last_seam_pos); return *m_last_seam_pos; }
+    bool            last_seam_pos_defined() const { return m_last_seam_pos.has_value(); }
+    void            set_last_seam_pos(const Point &pos) { m_last_seam_pos = pos; }
+    void            unset_last_seam_pos() { m_last_seam_pos.reset(); }
     // Convert coordinates of the active object to G-code coordinates, possibly adjusted for extruder offset.
     template<typename Derived>
     Eigen::Matrix<double, Derived::SizeAtCompileTime, 1, Eigen::DontAlign> point_to_gcode(const Eigen::MatrixBase<Derived> &point) const {
@@ -528,6 +532,7 @@ private:
 
     const PrintInstance*                m_last_instance {nullptr};
     std::optional<Point>                m_last_pos;
+    std::optional<Point>                m_last_seam_pos;
 
     // for ramping lift: if enabled, and this is set, then you will need to move Z at the next travel.
     // note: rampng lift and these kind of trick should eb reworked & improve when the gcode creation will be split in multiplt subsystem, these working on a chain of "command" objects. That way it should be easier to move the Z / travel accrodingly.

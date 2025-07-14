@@ -1764,6 +1764,7 @@ void GCodeGenerator::_do_export(Print& print_mod, GCodeOutputStream &file, Thumb
     preamble_to_put_start_layer.append(";").append(GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role)).append(gcode_extrusion_role_to_string(GCodeExtrusionRole::Custom)).append("\n");
     
     unset_last_pos();
+    unset_last_seam_pos();
 
     // Write the custom start G-code
     preamble_to_put_start_layer.append(start_gcode).append("\n");
@@ -4345,7 +4346,9 @@ void GCodeGenerator::split_at_seam_pos(ExtrusionLoop& loop, bool was_clockwise)
 
     // find the point of the loop that is closest to the current extruder position
     // or randomize if requested
-    Point seam_point = this->last_pos_defined() ? this->last_pos() : Point(0,0);
+    Point seam_point =
+        this->last_seam_pos_defined() ? this->last_seam_pos() :
+        (this->last_pos_defined() ? this->last_pos() : Point(0,0));
     //for first spiral, choose the seam, as the position will be very relevant.
     if (m_spiral_vase_layer > 1 /* spiral vase is printing and it's after the transition layer (that one can find a good spot)*/
         || !m_seam_perimeters) {
@@ -4409,6 +4412,7 @@ void GCodeGenerator::split_at_seam_pos(ExtrusionLoop& loop, bool was_clockwise)
     assert(loop.first_point() == loop.last_point());
 #endif
     }
+    set_last_seam_pos(seam_point);
 #if _DEBUG
     for (const ExtrusionPath &path : loop.paths)
         for (int i = 1; i < path.polyline.size(); ++i)
@@ -8591,6 +8595,7 @@ std::string GCodeGenerator::set_extruder(uint16_t extruder_id, double print_z, b
 
     // The position is now known after the tool change.
     this->unset_last_pos();
+    this->unset_last_seam_pos();
     
     return gcode;
 }
