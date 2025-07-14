@@ -1003,9 +1003,9 @@ struct SeamComparator {
                                  po.config().seam_position.value == SeamPosition::spCost) ?
                                     1.f :
                                     0.f;
-        overhang_importance = po.config().seam_avoid_overhangs.value ?
-                                    (float)po.config().seam_overhang_cost.get_abs_value(1.f) :
-                                    0.f;
+        overhang_importance = po.config().seam_allow_overhangs.value ?
+                                    0.f :
+                                    (float)po.config().seam_overhang_cost.get_abs_value(1.f);
     }
 
     // Standard comparator, must respect the requirements of comparators (e.g. give same result on same inputs) for sorting usage
@@ -1298,7 +1298,7 @@ void SeamPlacer::gather_seam_candidates(const PrintObject *po, const SeamPlacerI
                     auto unscaled_z = layer->slice_z;
                     std::vector<const LayerRegion*> regions;
                     //NOTE corresponding region ptr may be null, if the layer has zero perimeters
-                    bool allow_overhang_seams = !po->config().seam_avoid_overhangs.value;
+                    bool allow_overhang_seams = po->config().seam_allow_overhangs.value;
                     PolylineWithEnds polygons_and_lines = extract_perimeter_polylines(
                         layer, allow_overhang_seams, configured_seam_preference, regions);
                     for (size_t poly_index = 0; poly_index < polygons_and_lines.size(); ++poly_index) {

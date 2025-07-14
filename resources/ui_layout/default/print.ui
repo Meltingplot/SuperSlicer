@@ -81,7 +81,7 @@ group:sidetext_width$5:Seam
 		setting:tags$Advanced$Expert$SuSi:width$3:sidetext_width$0:seam_angle_cost
                 setting:tags$Advanced$Expert$SuSi:width$3:sidetext_width$0:seam_travel_cost
                 setting:tags$Expert$SuSi:sidetext_width$0:seam_visibility
-                setting:tags$Expert$SuSi:sidetext_width$0:seam_avoid_overhangs
+                setting:tags$Expert$SuSi:sidetext_width$0:seam_allow_overhangs
                 setting:tags$Expert$SuSi:width$3:sidetext_width$0:seam_overhang_cost
         end_line
 	setting:staggered_inner_seams

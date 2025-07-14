@@ -499,13 +499,13 @@ void PrintConfigDef::init_common_params()
     def->mode = comExpert | comSuSi;
     def->set_default_value(new ConfigOptionBool(true));
 
-    def = this->add("seam_avoid_overhangs", coBool);
-    def->label = L("avoid overhangs");
-    def->full_label = L("Avoid overhangs during seam placement");
+    def = this->add("seam_allow_overhangs", coBool);
+    def->label = L("allow overhang seams");
+    def->full_label = L("Allow seams on overhang perimeters");
     def->category = OptionCategory::perimeter;
-    def->tooltip = L("When enabled, seam points located on overhang perimeters are penalized.");
+    def->tooltip = L("When enabled, overhang perimeters can host seams without penalty.");
     def->mode = comExpert | comSuSi;
-    def->set_default_value(new ConfigOptionBool(true));
+    def->set_default_value(new ConfigOptionBool(false));
 
     def = this->add("seam_overhang_cost", coPercent);
     def->label = L("Overhang cost");
@@ -10049,7 +10049,7 @@ std::unordered_set<std::string> prusa_export_to_remove_keys = {
 "seam_notch_outer",
 "seam_travel_cost",
 "seam_visibility",
-"seam_avoid_overhangs",
+"seam_allow_overhangs",
 "seam_overhang_cost",
 "skirt_brim",
 "skirt_distance_from_brim",
