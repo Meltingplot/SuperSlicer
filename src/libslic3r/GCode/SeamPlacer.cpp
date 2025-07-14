@@ -968,8 +968,7 @@ struct SeamComparator {
                                  po.config().seam_position.value == SeamPosition::spCost) ?
                                     1.f :
                                     0.f;
-        overhang_importance = (po.config().seam_avoid_overhangs.value &&
-                               po.config().seam_position.value == SeamPosition::spCost) ?
+        overhang_importance = po.config().seam_avoid_overhangs.value ?
                                     (float)po.config().seam_overhang_cost.get_abs_value(1.f) :
                                     0.f;
     }
