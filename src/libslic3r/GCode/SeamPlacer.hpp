@@ -97,7 +97,7 @@ struct SeamCandidate {
     SeamCandidate(const Vec3f &pos, Perimeter &perimeter,
             float local_ccw_angle,
             EnforcedBlockedSeamPoint type) :
-            position(pos), perimeter(perimeter), visibility(0.0f), overhang(0.0f), embedded_distance(0.0f), local_ccw_angle(
+            position(pos), perimeter(perimeter), visibility(0.0f), overhang(0.0f), embedded_distance(0.0f), enforcer_distance(-1.f), local_ccw_angle(
                     local_ccw_angle), type(type), central_enforcer(false) {
     }
     const Vec3f position;
@@ -108,6 +108,9 @@ struct SeamCandidate {
     // distance inside the merged layer regions, for detecting perimeter points which are hidden indside the print (e.g. multimaterial join)
     // Negative sign means inside the print, comes from EdgeGrid structure
     float embedded_distance;
+    // distance to nearest enforced seam if any exist in the layer. Negative
+    // value means there is no enforcer on this layer.
+    float enforcer_distance;
     float local_ccw_angle;
     EnforcedBlockedSeamPoint type;
     bool central_enforcer; //marks this candidate as central point of enforced segment on the perimeter - important for alignment
@@ -164,7 +167,9 @@ public:
     static constexpr float angle_importance_nearest = 1.0f; // use much higher angle importance for nearest mode, to combat the visibility info noise
 
     // For long polygon sides, if they are close to the custom seam drawings, they are oversampled with this step size
-    static constexpr float enforcer_oversampling_distance = 0.2f;
+    static constexpr float enforcer_oversampling_distance = 0.05f;
+    // Additional oversampling distance used on overhang perimeter segments
+    static constexpr float overhang_oversampling_distance = 0.4f;
 
     // When searching for seam clusters for alignment:
     // following value describes, how much worse score can point have and still be picked into seam cluster instead of original seam point on the same layer
@@ -191,6 +196,7 @@ private:
     void gather_seam_candidates(const PrintObject *po, const SeamPlacerImpl::GlobalModelInfo &global_model_info, SeamPosition configured_seam_preference);
     void calculate_candidates_visibility(const PrintObject *po,
             const SeamPlacerImpl::GlobalModelInfo &global_model_info);
+    void calculate_enforcer_distances(const PrintObject *po, const SeamPlacerImpl::GlobalModelInfo &global_model_info);
     void calculate_overhangs_and_layer_embedding(const PrintObject *po);
     void align_seam_points(const PrintObject *po, const SeamPlacerImpl::SeamComparator &comparator);
     std::vector<std::pair<size_t, size_t>> find_seam_string(const PrintObject *po,

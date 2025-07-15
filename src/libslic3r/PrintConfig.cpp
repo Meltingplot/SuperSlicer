@@ -5403,6 +5403,18 @@ void PrintConfigDef::init_fff_params()
     def->mode = comExpert | comSuSi;
     def->set_default_value(new ConfigOptionBool(true));
 
+    def = this->add("seam_overhang_cost", coPercent);
+    def->label = L("Overhang cost");
+    def->full_label = L("Seam overhang cost");
+    def->category = OptionCategory::perimeter;
+    def->tooltip = L(
+        "Cost applied when placing a seam on an overhang. Increase to discourage seams on unsupported regions.");
+    def->sidetext = L("%");
+    def->min = 0;
+    def->max = 1000;
+    def->mode = comExpert | comSuSi;
+    def->set_default_value(new ConfigOptionPercent(100));
+
     def = this->add("staggered_inner_seams", coBool);
     def->label = L("Staggered inner seams");
     // TRN PrintSettings: "Staggered inner seams"
@@ -8780,6 +8792,7 @@ void _handle_legacy(std::unordered_map<t_config_option_key, std::pair<t_config_o
             // we change the cost
             dict["seam_angle_cost"] = {"seam_angle_cost", "50%"};
             dict["seam_travel_cost"] = {"seam_travel_cost", "50%"};
+            dict["seam_overhang_cost"] = {"seam_overhang_cost", "100%"};
         }
     }
     if (has(dict, "perimeter_loop_seam"s)) {
@@ -9451,10 +9464,12 @@ std::map<std::string,std::string> PrintConfigDef::from_prusa(t_config_option_key
         if ("cost" == value ) { // eqauls to "near" == value || "nearest" == value
             output["seam_angle_cost"] = "50%";
             output["seam_travel_cost"] = "50%";
+            output["seam_overhang_cost"] = "100%";
         } else if ("nearest" == value) {
             value = "cost";
             output["seam_angle_cost"] = "50%";
             output["seam_travel_cost"] = "50%";
+            output["seam_overhang_cost"] = "100%";
         }
     }
     if ("bridge_type" == opt_key) { // seems like thick_bridge to 0
@@ -10043,6 +10058,7 @@ std::unordered_set<std::string> prusa_export_to_remove_keys = {
 "seam_notch_outer",
 "seam_travel_cost",
 "seam_visibility",
+"seam_overhang_cost",
 "skirt_brim",
 "skirt_distance_from_brim",
 "skirt_extrusion_width",

@@ -33,6 +33,7 @@
 //#define DEBUG_FILES
 
 #ifdef DEBUG_FILES
+#include "libslic3r/Thread.hpp"
 #include <boost/nowide/cstdio.hpp>
 #include <SVG.hpp>
 #endif
@@ -267,7 +268,7 @@ std::vector<float> calculate_polyline_angles_at_vertices(const PolylineWithEnd &
         idx_start = 1;
         idx_end = polyline.size() -1;
         result.front() = polyline.endpoints.first ? -PI / 2 : 0;
-        result.back()  = polyline.endpoints.second ? -PI / 2 : 0;
+        result.back() = polyline.endpoints.second ? -PI / 2 : 0;
     }
 
     for (size_t _i = idx_start; _i < idx_end; ++_i) {
@@ -949,6 +950,7 @@ struct SeamComparator {
     float angle_importance = 1.f;
     float travel_importance = 1.f;
     float visibility_importance = 1.f;
+    float overhang_importance = 1.f;
     Point seam_mod_pos;
     explicit SeamComparator(SeamPosition setup, const PrintObject& po) :
             setup(setup) {
@@ -963,6 +965,7 @@ struct SeamComparator {
             travel_importance = (float)po.config().seam_travel_cost.get_abs_value(1.f);
             angle_importance = (float)po.config().seam_angle_cost.get_abs_value(1.f);
         }
+        overhang_importance = (float)po.config().seam_overhang_cost.get_abs_value(1.f);
         visibility_importance = (po.config().seam_visibility.value &&
                                  po.config().seam_position.value == SeamPosition::spCost) ?
                                     1.f :
@@ -982,24 +985,22 @@ struct SeamComparator {
             return a.type > b.type;
         }
 
-        //avoid overhangs
-        float overhang_penalty_a = 0.f;
-        float overhang_penalty_b = 0.f;
-        if ((a.overhang > a.perimeter.flow_width / 4 && b.overhang == 0.0f) ||
-            (b.overhang > b.perimeter.flow_width / 4 && a.overhang == 0.0f)) {
-            return a.overhang < b.overhang;
-        } else if (a.overhang > 0 || b.overhang > 0) {
-            overhang_penalty_a = std::clamp(2 * (a.overhang - a.perimeter.flow_width / 8) / a.perimeter.flow_width, 0.f, 3.f);
-            overhang_penalty_b = std::clamp(2 * (b.overhang - b.perimeter.flow_width / 8) / b.perimeter.flow_width, 0.f, 3.f);
-        }
+        auto overhang_factor = [](float overhang, float flow_width) {
+            if (flow_width <= 0.f)
+                return 0.f;
+            return std::clamp(overhang / (flow_width * 0.5f), 0.f, 1.f);
+        };
+
+        float overhang_penalty_a = overhang_importance * overhang_factor(a.overhang, a.perimeter.flow_width);
+        float overhang_penalty_b = overhang_importance * overhang_factor(b.overhang, b.perimeter.flow_width);
 
         // prefer hidden points (more than 0.5 mm inside)
-        if (a.embedded_distance < -0.5f && b.embedded_distance > -0.5f) {
-            return true;
-        }
-        if (b.embedded_distance < -0.5f && a.embedded_distance > -0.5f) {
-            return false;
-        }
+        //if (a.embedded_distance < -0.5f && b.embedded_distance > -0.5f) {
+        //    return true;
+        //}
+        //if (b.embedded_distance < -0.5f && a.embedded_distance > -0.5f) {
+        //    return false;
+        //}
 
         if (setup == SeamPosition::spRear && a.position.y() != b.position.y()) {
             return a.position.y() > b.position.y();
@@ -1013,14 +1014,40 @@ struct SeamComparator {
         }
 
         // the penalites are kept close to range [0-1.x] however, it should not be relied upon
+        float angle_penalty_a = std::min(compute_angle_penalty(a.local_ccw_angle) / 2.f, 1.f);
+        float angle_penalty_b = std::min(compute_angle_penalty(b.local_ccw_angle) / 2.f, 1.f);
+
+        float enforcer_penalty_a = 1.0f - gauss(a.enforcer_distance, 0.0f, 1.0f, 0.005f);
+        float enforcer_penalty_b = 1.0f - gauss(b.enforcer_distance, 0.0f, 1.0f, 0.005f);
+
+        /* if (a.type == EnforcedBlockedSeamPoint::Blocked) {
+            enforcer_penalty_a = 1.f; // blocked points are always worse
+        } else if (a.type == EnforcedBlockedSeamPoint::Enforced || a.type == EnforcedBlockedSeamPoint::Sphere) {
+            enforcer_penalty_a -= 1.f; // enforced points are always better
+        }
+
+        if (b.type == EnforcedBlockedSeamPoint::Blocked) {
+            enforcer_penalty_b = 1.f; // blocked points are always worse
+        } else if (b.type == EnforcedBlockedSeamPoint::Enforced || b.type == EnforcedBlockedSeamPoint::Sphere) {
+            enforcer_penalty_b -= 1.f; // enforced points are always better
+        }*/
+        //if (a.enforcer_distance >= 0.f)
+        //    enforcer_penalty_a = std::min(a.enforcer_distance / (a.perimeter.flow_width * 5.f), 1.f);
+        //if (b.enforcer_distance >= 0.f)
+        //    enforcer_penalty_b = std::min(b.enforcer_distance / (b.perimeter.flow_width * 5.f), 1.f);
+        //enforcer_penalty_a *= enforcer_penalty_a;
+        //enforcer_penalty_b *= enforcer_penalty_b;
+
         float penalty_a = overhang_penalty_a
                 + visibility_importance * a.visibility
-                + angle_importance * compute_angle_penalty(a.local_ccw_angle)
-                + travel_importance * distance_penalty_a;
+                + angle_importance * angle_penalty_a
+                + travel_importance * distance_penalty_a
+                + enforcer_penalty_a;
         float penalty_b = overhang_penalty_b
                 + visibility_importance * b.visibility
-                + angle_importance * compute_angle_penalty(b.local_ccw_angle)
-                + travel_importance * distance_penalty_b;
+                + angle_importance * angle_penalty_b
+                + travel_importance * distance_penalty_b
+                + enforcer_penalty_b;
 
         return penalty_a < penalty_b;
     }
@@ -1038,7 +1065,7 @@ struct SeamComparator {
         if (a.type == EnforcedBlockedSeamPoint::Enforced) {
             return true;
         }
-
+        
         if (a.type == EnforcedBlockedSeamPoint::Blocked) {
             return false;
         }
@@ -1047,11 +1074,6 @@ struct SeamComparator {
             return a.type > b.type;
         }
 
-        //avoid overhangs
-        if ((a.overhang > 0.0f || b.overhang > 0.0f)
-                && abs(a.overhang - b.overhang) > (0.1f * a.perimeter.flow_width)) {
-            return a.overhang < b.overhang;
-        }
 
         // prefer hidden points (more than 0.5 mm inside)
         if (a.embedded_distance < -0.5f && b.embedded_distance > -0.5f) {
@@ -1069,10 +1091,19 @@ struct SeamComparator {
             return a.position.y() + SeamPlacer::seam_align_score_tolerance * 5.0f > b.position.y();
         }
 
-        float penalty_a = a.overhang + a.visibility
-                + angle_importance * compute_angle_penalty(a.local_ccw_angle);
-        float penalty_b = b.overhang + b.visibility +
-                angle_importance * compute_angle_penalty(b.local_ccw_angle);
+        auto overhang_factor = [](float overhang, float flow_width) {
+            if (flow_width <= 0.f)
+                return 0.f;
+            return std::clamp(overhang / (flow_width * 0.5f), 0.f, 1.f);
+        };
+
+        float angle_penalty_a = std::min(compute_angle_penalty(a.local_ccw_angle) / 2.f, 1.f);
+        float angle_penalty_b = std::min(compute_angle_penalty(b.local_ccw_angle) / 2.f, 1.f);
+
+        float penalty_a = overhang_importance * overhang_factor(a.overhang, a.perimeter.flow_width) + a.visibility
+                + angle_importance * angle_penalty_a;
+        float penalty_b = overhang_importance * overhang_factor(b.overhang, b.perimeter.flow_width) + b.visibility
+                + angle_importance * angle_penalty_b;
 
         return penalty_a <= penalty_b || penalty_a - penalty_b < SeamPlacer::seam_align_score_tolerance;
     }
@@ -1117,6 +1148,12 @@ void debug_export_points(const std::vector<PrintObjectSeamData::LayerSeams> &lay
         std::string overhangs_file_name = debug_out_path(
                 ("overhang_" + std::to_string(layer_idx) + ".svg").c_str());
         SVG overhangs_svg { overhangs_file_name, bounding_box };
+        std::string better_file_name = debug_out_path(("is_first_better_" + std::to_string(layer_idx) + ".svg").c_str());
+        SVG better_svg{better_file_name, bounding_box};
+
+        float current_better_value = 0.0f;
+        SeamCandidate *prevPoint = nullptr;
+        SeamCandidate *bestPoint = nullptr;
 
         for (const SeamCandidate &point : layers[layer_idx].points) {
             Vec3i32 color = value_to_rgbi(min_vis, max_vis, point.visibility);
@@ -1137,7 +1174,108 @@ void debug_export_points(const std::vector<PrintObjectSeamData::LayerSeams> &lay
                     + ","
                     + std::to_string(overhang_color.z()) + ")";
             overhangs_svg.draw(scaled(Vec2f(point.position.head<2>())), overhang_fill);
+
+            if (bestPoint != nullptr) {
+                if (!comparator.is_first_better(point, *bestPoint)) {
+                    current_better_value += 1.0f;
+                    Vec3i32 better_color = value_to_rgbi(0, layers[layer_idx].points.size(), current_better_value);
+                    std::string better_fill = "rgb(" + std::to_string(better_color.x()) + "," +
+                        std::to_string(better_color.y()) + "," + std::to_string(better_color.z()) + ")";
+                    better_svg.draw(scaled(Vec2f(point.position.head<2>())), better_fill);
+                } else {
+                    bestPoint = const_cast<SeamPlacerImpl::SeamCandidate *>(&point);
+                }
+            } else {
+                bestPoint = const_cast<SeamPlacerImpl::SeamCandidate *>(&point);
+            }
         }
+
+        if (bestPoint != nullptr) {
+            current_better_value += 1.0f;
+            Vec3i32 better_color = value_to_rgbi(0, layers[layer_idx].points.size(), current_better_value);
+            std::string better_fill = "rgb(" + std::to_string(better_color.x()) + "," +
+                std::to_string(better_color.y()) + "," + std::to_string(better_color.z()) + ")";
+            better_svg.draw(scaled(Vec2f(bestPoint->position.head<2>())), better_fill, scaled(0.5f));
+        }
+    }
+}
+void debug_export_points_layer(size_t layer_idx, const PrintObjectSeamData::LayerSeams &layer,
+                         const BoundingBox &bounding_box,
+                         Vec2f lastPos,
+                         const SeamComparator &comparator) {
+    
+    std::string angles_file_name = debug_out_path(("angles_" + std::to_string(layer_idx) + "_re.svg").c_str());
+    SVG angles_svg{angles_file_name, bounding_box};
+    float min_vis = 0;
+    float max_vis = min_vis;
+
+    float min_weight = std::numeric_limits<float>::min();
+    float max_weight = min_weight;
+
+    for (const SeamCandidate &point : layer.points) {
+        Vec3i32 color = value_to_rgbi(-PI, PI, point.local_ccw_angle);
+        std::string fill = "rgb(" + std::to_string(color.x()) + "," + std::to_string(color.y()) + "," +
+            std::to_string(color.z()) + ")";
+        angles_svg.draw(scaled(Vec2f(point.position.head<2>())), fill);
+        min_vis = std::min(min_vis, point.visibility);
+        max_vis = std::max(max_vis, point.visibility);
+
+        min_weight = std::min(min_weight, -compute_angle_penalty(point.local_ccw_angle));
+        max_weight = std::max(max_weight, -compute_angle_penalty(point.local_ccw_angle));
+    }
+
+    std::string visiblity_file_name = debug_out_path(("visibility_" + std::to_string(layer_idx) + "_re.svg").c_str());
+    SVG visibility_svg{visiblity_file_name, bounding_box};
+    std::string weights_file_name = debug_out_path(("weight_" + std::to_string(layer_idx) + "_re.svg").c_str());
+    SVG weight_svg{weights_file_name, bounding_box};
+    std::string overhangs_file_name = debug_out_path(("overhang_" + std::to_string(layer_idx) + "_re.svg").c_str());
+    SVG overhangs_svg{overhangs_file_name, bounding_box};
+    std::string better_file_name = debug_out_path(
+        ("is_first_better_" + std::to_string(layer_idx) + "_re.svg").c_str());
+    SVG better_svg{better_file_name, bounding_box};
+
+    float current_better_value = 0.0f;
+    SeamCandidate *prevPoint = nullptr;
+    SeamCandidate *bestPoint = nullptr;
+
+    for (const SeamCandidate &point : layer.points) {
+        Vec3i32 color = value_to_rgbi(min_vis, max_vis, point.visibility);
+        std::string visibility_fill = "rgb(" + std::to_string(color.x()) + "," + std::to_string(color.y()) + "," +
+            std::to_string(color.z()) + ")";
+        visibility_svg.draw(scaled(Vec2f(point.position.head<2>())), visibility_fill);
+
+        Vec3i32 weight_color = value_to_rgbi(min_weight, max_weight,
+                                                -compute_angle_penalty(point.local_ccw_angle));
+        std::string weight_fill = "rgb(" + std::to_string(weight_color.x()) + "," +
+            std::to_string(weight_color.y()) + "," + std::to_string(weight_color.z()) + ")";
+        weight_svg.draw(scaled(Vec2f(point.position.head<2>())), weight_fill);
+
+        Vec3i32 overhang_color = value_to_rgbi(-0.5, 0.5, std::clamp(point.overhang, -0.5f, 0.5f));
+        std::string overhang_fill = "rgb(" + std::to_string(overhang_color.x()) + "," +
+            std::to_string(overhang_color.y()) + "," + std::to_string(overhang_color.z()) + ")";
+        overhangs_svg.draw(scaled(Vec2f(point.position.head<2>())), overhang_fill);
+
+        if (bestPoint != nullptr) {
+            if (!comparator.is_first_better(point, *bestPoint, lastPos)) {
+                current_better_value += 1.0f;
+                Vec3i32 better_color = value_to_rgbi(0, layer.points.size(), current_better_value);
+                std::string better_fill = "rgb(" + std::to_string(better_color.x()) + "," +
+                    std::to_string(better_color.y()) + "," + std::to_string(better_color.z()) + ")";
+                better_svg.draw(scaled(Vec2f(point.position.head<2>())), better_fill);
+            } else {
+                bestPoint = const_cast<SeamPlacerImpl::SeamCandidate *>(&point);
+            }
+        } else {
+            bestPoint = const_cast<SeamPlacerImpl::SeamCandidate *>(&point);
+        }
+    }
+
+    if (bestPoint != nullptr) {
+        current_better_value += 1.0f;
+        Vec3i32 better_color = value_to_rgbi(0, layer.points.size(), current_better_value);
+        std::string better_fill = "rgb(" + std::to_string(better_color.x()) + "," +
+            std::to_string(better_color.y()) + "," + std::to_string(better_color.z()) + ")";
+        better_svg.draw(scaled(Vec2f(bestPoint->position.head<2>())), better_fill, scaled(0.5f));
     }
 }
 #endif
@@ -1285,6 +1423,41 @@ void SeamPlacer::calculate_candidates_visibility(const PrintObject *po,
                     }
                 }
             });
+}
+
+void SeamPlacer::calculate_enforcer_distances(const PrintObject *po,
+                                              const SeamPlacerImpl::GlobalModelInfo &global_model_info) {
+    using namespace SeamPlacerImpl;
+    std::vector<PrintObjectSeamData::LayerSeams> &layers = m_seam_per_object[po].layers;
+
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, layers.size()),
+                      [&layers, &global_model_info](tbb::blocked_range<size_t> r) {
+                          for (size_t layer_idx = r.begin(); layer_idx < r.end(); ++layer_idx) {
+                              bool has_enf = false;
+                              for (const SeamCandidate &c : layers[layer_idx].points) {
+                                  if (c.type == EnforcedBlockedSeamPoint::Enforced ||
+                                      c.type == EnforcedBlockedSeamPoint::Sphere) {
+                                      has_enf = true;
+                                      break;
+                                  }
+                              }
+
+                              if (!has_enf) {
+                                  for (SeamCandidate &c : layers[layer_idx].points)
+                                      c.enforcer_distance = -1.f;
+                                  continue;
+                              }
+
+                              for (SeamCandidate &c : layers[layer_idx].points) {
+                                  size_t hit_idx = 0;
+                                  Vec3f hit_point;
+                                  float dist_sqr = AABBTreeIndirect::squared_distance_to_indexed_triangle_set(
+                                      global_model_info.enforcers.vertices, global_model_info.enforcers.indices,
+                                      global_model_info.enforcers_tree, c.position, hit_idx, hit_point);
+                                  c.enforcer_distance = dist_sqr < 0.f ? 0.f : sqrtf(dist_sqr);
+                              }
+                          }
+                      });
 }
 
 void SeamPlacer::calculate_overhangs_and_layer_embedding(const PrintObject *po) {
@@ -1783,6 +1956,11 @@ void SeamPlacer::init(const Print &print, std::function<void(void)> throw_if_can
                 calculate_candidates_visibility(po, global_model_info);
                 BOOST_LOG_TRIVIAL(debug)
                 << "SeamPlacer: calculate_candidates_visibility : end";
+                BOOST_LOG_TRIVIAL(debug)
+                << "SeamPlacer: calculate_enforcer_distances : start";
+                calculate_enforcer_distances(po, global_model_info);
+                BOOST_LOG_TRIVIAL(debug)
+                << "SeamPlacer: calculate_enforcer_distances : end";
             }
         } // destruction of global_model_info (large structure, no longer needed)
         throw_if_canceled_func();
@@ -2064,6 +2242,12 @@ Point SeamPlacer::place_seam(const Layer *layer, const ExtrusionLoop &loop, cons
             }*/
         }
     }
+#ifdef DEBUG_FILES
+    SeamPosition configured_seam_preference = po->config().seam_position.value;
+    SeamComparator comparator{configured_seam_preference, *po};
+    debug_export_points_layer(layer->id(), layer_perimeters, po->bounding_box(), unscaled<float>(last_pos),
+                              comparator);
+#endif
     return seam_point;
 }
 
