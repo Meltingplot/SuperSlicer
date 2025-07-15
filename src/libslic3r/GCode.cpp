@@ -4382,7 +4382,7 @@ void GCodeGenerator::split_at_seam_pos(ExtrusionLoop& loop, bool was_clockwise)
             double precision = pow(10, -m_config.gcode_precision_xyz.value);
             precision *= 1.5;
             auto old_loop = loop;
-            loop.split_at(seam_point, true, scale_t(precision));
+            loop.split_at(seam_point, false, scale_t(precision));
             
 #if _DEBUG
     for (const ExtrusionPath &path : loop.paths)
@@ -4395,7 +4395,7 @@ void GCodeGenerator::split_at_seam_pos(ExtrusionLoop& loop, bool was_clockwise)
     assert(loop.first_point() == loop.last_point());
 #endif
     
-            old_loop.split_at(seam_point, true, scale_t(precision));
+            old_loop.split_at(seam_point, false, scale_t(precision));
         }
         
 #if _DEBUG

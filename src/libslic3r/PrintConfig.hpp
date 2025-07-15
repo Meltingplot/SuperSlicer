@@ -792,6 +792,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionEnum<SeamPosition>,   seam_position))
     ((ConfigOptionPercent,              seam_angle_cost))
     ((ConfigOptionPercent,              seam_travel_cost))
+    ((ConfigOptionPercent,              seam_overhang_cost))
     ((ConfigOptionFloatOrPercent,       seam_notch_all))
     ((ConfigOptionFloat,                seam_notch_angle))
     ((ConfigOptionFloatOrPercent,       seam_notch_inner))
