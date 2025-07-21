@@ -265,6 +265,151 @@ void GCodeGenerator::PlaceholderParserIntegration::reset()
     this->e_restart_extra.clear();
 }
 
+/**
+ * Compute a candidate point for inside extrusion at either the start or end of a
+ * perimeter loop.
+ *
+ * \param paths            Extrusion paths forming the perimeter loop.
+ * \param fallback_poly    Optional polygon used when `paths` do not contain
+ *                         `current_point` exactly.
+ * \param current_point    Point on the loop to offset from.
+ * \param from_start       If true `current_point` represents the start of the
+ *                         loop, otherwise the end.
+ * \param is_hole_loop     Whether the loop is a hole.
+ * \param is_full_loop_ccw Orientation of the loop if it forms a full polygon.
+ * \param nozzle_diam      Nozzle diameter in millimeters.
+ * \param setting_max_depth Maximum allowed distance for the inside extrusion
+ *                          in millimeters.
+ * \param[out] inside_pt   Stores the computed point when not null.
+ * \return                 Offset distance in scaled coordinates.
+ */
+static coordf_t compute_inside_point(const ExtrusionPaths &paths,
+                                     const Polygon       *fallback_poly,
+                                     const Point         &current_point,
+                                     bool                 from_start,
+                                     bool                 is_hole_loop,
+                                     bool                 is_full_loop_ccw,
+                                     double               nozzle_diam,
+                                     double               setting_max_depth,
+                                     Point               *inside_pt)
+{
+    if (paths.empty())
+        return 0;
+
+    Polygon poly;
+    for (const ExtrusionPath &p : paths) {
+        Polyline pl = p.polyline.to_polyline();
+        poly.points.insert(poly.points.end(), pl.points.begin(), pl.points.end() - 1);
+    }
+
+    auto get_adjacent = [&](const Polygon &poly_ref) {
+        int idx = poly_ref.find_point(current_point, SCALED_EPSILON);
+        if (idx >= 0)
+            return std::pair<Point, Point>{
+                poly_ref.points[(idx + poly_ref.points.size() - 1) % poly_ref.points.size()],
+                poly_ref.points[(idx + 1) % poly_ref.points.size()]};
+        return std::pair<Point, Point>{};
+    };
+
+    Point prev_point, next_point;
+    auto pair_points = get_adjacent(poly);
+    if (pair_points.first != Point() || pair_points.second != Point()) {
+        prev_point = pair_points.first;
+        next_point = pair_points.second;
+    } else if (fallback_poly &&
+               (pair_points = get_adjacent(*fallback_poly),
+                pair_points.first != Point() || pair_points.second != Point())) {
+        prev_point = pair_points.first;
+        next_point = pair_points.second;
+    } else if (fallback_poly && fallback_poly->size() >= 2) {
+        int idx = fallback_poly->closest_point_index(current_point);
+        prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
+        next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
+    } else {
+        if (from_start) {
+            next_point = paths.front().size() >= 2 ? paths.front().polyline.get_point(1) : current_point;
+            prev_point = paths.back().size() >= 2 ? paths.back().polyline.get_point(paths.back().polyline.size() - 2) : current_point;
+        } else {
+            prev_point = paths.back().size() >= 2 ? paths.back().polyline.get_point(paths.back().polyline.size() - 2) : current_point;
+            next_point = paths.front().size() >= 2 ? paths.front().polyline.get_point(1) : current_point;
+        }
+    }
+
+    Vec2d current_pos = current_point.cast<double>();
+    Vec2d vec_next = next_point.cast<double>() - current_point.cast<double>();
+    Vec2d vec_prev = current_point.cast<double>() - prev_point.cast<double>();
+
+    if (vec_next.norm() == 0)
+        vec_next = vec_prev;
+    if (vec_prev.norm() == 0)
+        vec_prev = vec_next;
+
+    Vec2d tangent = from_start ? vec_next : vec_prev;
+    if (vec_next.norm() != 0 && vec_prev.norm() != 0) {
+        vec_next.normalize();
+        vec_prev.normalize();
+        tangent = (vec_next + vec_prev) / 2.0;
+    }
+    if (tangent.norm() != 0)
+        tangent.normalize();
+
+    double sign = (is_hole_loop ? (!is_full_loop_ccw) : is_full_loop_ccw) ? 1. : -1.;
+    Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
+    normal.normalize();
+
+    coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
+    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55) {
+        dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
+            [current_pos, normal](coord_t d) -> Point { return Point::round(current_pos + normal * d); }));
+        if (fallback_poly && dist <= scale_d(nozzle_diam) / 2) {
+            ExtrusionPaths tmp_paths;
+            tmp_paths.emplace_back(paths.front());
+            tmp_paths.back().polyline.clear();
+            tmp_paths.back().polyline.append(fallback_poly->points.begin(), fallback_poly->points.end());
+            tmp_paths.back().polyline.append(fallback_poly->points.front());
+            coordf_t dist_poly = coordf_t(check_wipe::max_depth(tmp_paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
+                [current_pos, normal](coord_t d) -> Point { return Point::round(current_pos + normal * d); }));
+            dist = std::max(dist, dist_poly);
+        }
+    }
+
+    if (dist < 0)
+        dist = scale_d(nozzle_diam) / 2;
+
+    if (inside_pt)
+        *inside_pt = Point::round(current_pos + normal * dist);
+
+    return dist;
+}
+
+/**
+ * Check whether an inside extrusion segment remains inside the currently
+ * processed island polygons.
+ *
+ * \param current_point   Start of the inside segment on the perimeter.
+ * \param target_point    End point of the inside segment.
+ * \param nozzle_diam     Nozzle diameter in millimeters.
+ * \param islands         Polygons of the current island.
+ * \return                True if the inside segment is fully inside the island.
+ */
+static bool inside_segment_valid(const Point &current_point,
+                                 const Point &target_point,
+                                 double       nozzle_diam,
+                                 const ExPolygons &islands)
+{
+    Vec2d normal_vec = target_point.cast<double>() - current_point.cast<double>();
+    double len = normal_vec.norm();
+    if (len <= 0)
+        return false;
+    normal_vec /= len;
+    Point start_point = Point::round(current_point.cast<double>() + normal_vec * scale_d(nozzle_diam) * 2);
+    Polyline inside_polyline{start_point, target_point};
+    for (const ExPolygon &ep : islands)
+        if (ep.contains(inside_polyline))
+            return true;
+    return false;
+}
+
 void GCodeGenerator::PlaceholderParserIntegration::init(const PrintConfig &print_config, const GCodeWriter &writer)
 {
     this->reset();
@@ -4772,188 +4917,26 @@ coordf_t GCodeGenerator::compute_inside_distance_start(const ExtrusionPaths &pat
         double nozzle_diam, double setting_max_depth,
         Point *inside_pt = nullptr)
 {
-    if (paths.empty())
-        return 0;
-
-    Point current_point = paths.front().first_point();
-    Polygon poly;
-    for (const ExtrusionPath &p : paths) {
-        Polyline pl = p.polyline.to_polyline();
-        poly.points.insert(poly.points.end(), pl.points.begin(), pl.points.end() - 1);
-    }
-    int idx = poly.find_point(current_point, SCALED_EPSILON);
-    Point next_point;
-    Point prev_point;
-    if (idx >= 0) {
-        next_point = poly.points[(idx + 1) % poly.points.size()];
-        prev_point = poly.points[(idx + poly.points.size() - 1) % poly.points.size()];
-    } else if (fallback_poly != nullptr && (idx = fallback_poly->find_point(current_point, SCALED_EPSILON)) >= 0) {
-        next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
-        prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
-    } else {
-        if (fallback_poly != nullptr && fallback_poly->size() >= 2) {
-            idx = fallback_poly->closest_point_index(current_point);
-            next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
-            prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
-        } else {
-            next_point = paths.front().size() >= 2 ? paths.front().polyline.get_point(1) : current_point;
-            prev_point = paths.back().size() >= 2 ? paths.back().polyline.get_point(paths.back().polyline.size() - 2) : current_point;
-        }
-    }
-
-    Vec2d current_pos = current_point.cast<double>();
-
-    Vec2d vec_start = next_point.cast<double>() - current_point.cast<double>();
-    Vec2d vec_end   = current_point.cast<double>() - prev_point.cast<double>();
-    if (vec_start.norm() == 0)
-        vec_start = vec_end;
-    if (vec_end.norm() == 0)
-        vec_end = vec_start;
-    Vec2d tangent = vec_start;
-    if (vec_start.norm() != 0 && vec_end.norm() != 0) {
-        vec_start.normalize();
-        vec_end.normalize();
-        tangent = (vec_start + vec_end) / 2.0;
-    }
-    if (tangent.norm() != 0)
-        tangent.normalize();
-
-    double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
-    Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
-    normal.normalize();
-
-    coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
-    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55) {
-        dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
-            [current_pos, normal](coord_t d)->Point {
-                return Point::round(current_pos + normal * d);
-            }));
-        if (fallback_poly != nullptr && dist <= scale_d(nozzle_diam) / 2) {
-            ExtrusionPaths tmp_paths;
-            tmp_paths.emplace_back(paths.front());
-            tmp_paths.back().polyline.clear();
-            tmp_paths.back().polyline.append(fallback_poly->points.begin(), fallback_poly->points.end());
-            tmp_paths.back().polyline.append(fallback_poly->points.front());
-            coordf_t dist_poly = coordf_t(check_wipe::max_depth(tmp_paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
-                [current_pos, normal](coord_t d)->Point {
-                    return Point::round(current_pos + normal * d);
-                }));
-            dist = std::max(dist, dist_poly);
-        }
-    }
-
-    //if (dist > scale_d(nozzle_diam) * 2) {
-    //    Vec2d start_norm = vec_start.cast<double>();
-    //    Vec2d end_norm = vec_end.cast<double>();
-    //    if (start_norm.norm() != 0)
-    //        start_norm.normalize();
-    //    if (end_norm.norm() != 0)
-    //        end_norm.normalize();
-    //    double dot = start_norm.dot(end_norm);
-    //    if (dot >= std::cos(M_PI / 4.0)  || dot < std::cos(3.0 * M_PI / 4.0)) {
-    //        dist = 0;
-    //    }
-    //}
-
-    if (dist < 0)
-        dist = scale_d(nozzle_diam) / 2;
-    if (inside_pt != nullptr)
-        *inside_pt = Point::round(current_pos + normal * dist);
-
-    return dist;
+    return compute_inside_point(paths, fallback_poly, paths.front().first_point(),
+                                true, is_hole_loop, is_full_loop_ccw,
+                                nozzle_diam, setting_max_depth, inside_pt);
 }
 
 void GCodeGenerator::perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed)
 {
     if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty())
         return;
+    const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
 
     Point current_point = paths.front().first_point();
-    Polygon poly;
-    for (const ExtrusionPath &p : paths) {
-        Polyline pl = p.polyline.to_polyline();
-        poly.points.insert(poly.points.end(), pl.points.begin(), pl.points.end() - 1);
-    }
-    int idx = poly.find_point(current_point, SCALED_EPSILON);
-    Point next_point;
-    Point prev_point;
-    if (idx >= 0) {
-        next_point = poly.points[(idx + 1) % poly.points.size()];
-        prev_point = poly.points[(idx + poly.points.size() - 1) % poly.points.size()];
-    } else if (fallback_poly != nullptr && (idx = fallback_poly->find_point(current_point, SCALED_EPSILON)) >= 0) {
-        next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
-        prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
-    } else {
-        if (fallback_poly != nullptr && fallback_poly->size() >= 2) {
-            idx = fallback_poly->closest_point_index(current_point);
-            next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
-            prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
-        } else {
-            next_point = paths.front().size() >= 2 ? paths.front().polyline.get_point(1) : current_point;
-            prev_point = paths.back().size() >= 2 ? paths.back().polyline.get_point(paths.back().polyline.size() - 2) : current_point;
-        }
-    }
-
-    Vec2d current_pos = current_point.cast<double>();
-
-    Vec2d vec_start = next_point.cast<double>() - current_point.cast<double>();
-    Vec2d vec_end   = current_point.cast<double>() - prev_point.cast<double>();
-    if (vec_start.norm() == 0)
-        vec_start = vec_end;
-    if (vec_end.norm() == 0)
-        vec_end = vec_start;
-    Vec2d tangent = vec_start;
-    if (vec_start.norm() != 0 && vec_end.norm() != 0) {
-        vec_start.normalize();
-        vec_end.normalize();
-        tangent = (vec_start + vec_end) / 2.0;
-    }
-    if (tangent.norm() != 0)
-        tangent.normalize();
-
-    double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
-    Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
-    normal.normalize();
-
-    const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
-    coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
-    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55) {
-        dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
-            [current_pos, normal](coord_t dist)->Point {
-                return Point::round(current_pos + normal * dist);
-            }));
-        if (fallback_poly != nullptr && dist <= scale_d(nozzle_diam) / 2) {
-            ExtrusionPaths tmp_paths;
-            tmp_paths.emplace_back(paths.front());
-            tmp_paths.back().polyline.clear();
-            tmp_paths.back().polyline.append(fallback_poly->points.begin(), fallback_poly->points.end());
-            tmp_paths.back().polyline.append(fallback_poly->points.front());
-            coordf_t dist_poly = coordf_t(check_wipe::max_depth(tmp_paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
-                [current_pos, normal](coord_t dist)->Point {
-                    return Point::round(current_pos + normal * dist);
-                }));
-            dist = std::max(dist, dist_poly);
-        }
-    }
-    Point pt = Point::round(current_pos + normal * dist);
+    Point pt;
+    coordf_t dist = compute_inside_point(paths, fallback_poly, current_point, true,
+                                         is_hole_loop, is_full_loop_ccw, nozzle_diam,
+                                         setting_max_depth, &pt);
 
     // Ensure the inside extrusion stays inside the current island polygons
-    {
-        Vec2d normal_vec = (pt.cast<double>() - current_point.cast<double>());
-        double len = normal_vec.norm();
-        bool is_inside = false;
-        if (len > 0) {
-            normal_vec /= len;
-            Point start_point = Point::round(current_point.cast<double>() + normal_vec * scale_d(nozzle_diam) * 2);
-            Polyline inside_polyline{start_point, pt};
-            for (ExPolygon &ep : m_current_island_polygons) {
-                if ((is_inside = ep.contains(inside_polyline)))
-                    break;
-            }
-        }
-        if (!is_inside)
-            return;
-    }
+    if (!inside_segment_valid(current_point, pt, nozzle_diam, m_current_island_polygons))
+        return;
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{pt, current_point}), paths.front().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.front().mm3_per_mm() * 0.9;
@@ -4967,93 +4950,17 @@ void GCodeGenerator::perimeter_inside_end(ExtrusionPaths& paths, const Polygon* 
 {
     if (!BOOL_EXTRUDER_CONFIG(extrude_perimeter_inside) || is_hole_loop || paths.empty())
         return;
+    const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
 
     Point current_point = paths.back().last_point();
-    Polygon poly;
-    for (const ExtrusionPath &p : paths) {
-        Polyline pl = p.polyline.to_polyline();
-        poly.points.insert(poly.points.end(), pl.points.begin(), pl.points.end() - 1);
-    }
-    int idx = poly.find_point(current_point, SCALED_EPSILON);
-    Point prev_point;
-    Point next_point;
-    if (idx >= 0) {
-        prev_point = poly.points[(idx + poly.points.size() - 1) % poly.points.size()];
-        next_point = poly.points[(idx + 1) % poly.points.size()];
-    } else if (fallback_poly != nullptr && (idx = fallback_poly->find_point(current_point, SCALED_EPSILON)) >= 0) {
-        prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
-        next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
-    } else {
-        if (fallback_poly != nullptr && fallback_poly->size() >= 2) {
-            idx = fallback_poly->closest_point_index(current_point);
-            prev_point = fallback_poly->points[(idx + fallback_poly->points.size() - 1) % fallback_poly->points.size()];
-            next_point = fallback_poly->points[(idx + 1) % fallback_poly->points.size()];
-        } else {
-            prev_point = paths.back().size() >= 2 ? paths.back().polyline.get_point(paths.back().polyline.size() - 2) : current_point;
-            next_point = paths.front().size() >= 2 ? paths.front().polyline.get_point(1) : current_point;
-        }
-    }
-
-    Vec2d current_pos = current_point.cast<double>();
-
-    Vec2d vec_end   = current_point.cast<double>() - prev_point.cast<double>();
-    Vec2d vec_start = next_point.cast<double>() - current_point.cast<double>();
-    if (vec_start.norm() == 0)
-        vec_start = vec_end;
-    if (vec_end.norm() == 0)
-        vec_end = vec_start;
-    Vec2d tangent = vec_end;
-    if (vec_start.norm() != 0 && vec_end.norm() != 0) {
-        vec_start.normalize();
-        vec_end.normalize();
-        tangent = (vec_start + vec_end) / 2.0;
-    }
-    if (tangent.norm() != 0)
-        tangent.normalize();
-
-    double sign = (is_hole_loop ? (!is_full_loop_ccw) : (is_full_loop_ccw)) ? 1. : -1.;
-    Vec2d normal(sign > 0 ? -tangent.y() : tangent.y(), sign > 0 ? tangent.x() : -tangent.x());
-    normal.normalize();
-
-    const double setting_max_depth = m_config.extrude_perimeter_inside_length.get_at(m_writer.tool()->id());
-    coordf_t dist = setting_max_depth <= 0 ? scale_d(nozzle_diam) / 2 : scale_d(setting_max_depth);
-    if (nozzle_diam != 0 && setting_max_depth > nozzle_diam * 0.55) {
-        dist = coordf_t(check_wipe::max_depth(paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
-            [current_pos, normal](coord_t dist)->Point {
-                return Point::round(current_pos + normal * dist);
-            }));
-        if (fallback_poly != nullptr && dist <= scale_d(nozzle_diam) / 2) {
-            ExtrusionPaths tmp_paths;
-            tmp_paths.emplace_back(paths.front());
-            tmp_paths.back().polyline.clear();
-            tmp_paths.back().polyline.append(fallback_poly->points.begin(), fallback_poly->points.end());
-            tmp_paths.back().polyline.append(fallback_poly->points.front());
-            coordf_t dist_poly = coordf_t(check_wipe::max_depth(tmp_paths, scale_t(setting_max_depth), scale_t(nozzle_diam),
-                [current_pos, normal](coord_t dist)->Point {
-                    return Point::round(current_pos + normal * dist);
-                }));
-            dist = std::max(dist, dist_poly);
-        }
-    }
-    Point pt_inside = Point::round(current_pos + normal * dist);
+    Point pt_inside;
+    coordf_t dist = compute_inside_point(paths, fallback_poly, current_point, false,
+                                         is_hole_loop, is_full_loop_ccw, nozzle_diam,
+                                         setting_max_depth, &pt_inside);
 
     // Ensure the inside extrusion stays inside the current island polygons
-    {
-        Vec2d normal_vec = (pt_inside.cast<double>() - current_point.cast<double>());
-        double len = normal_vec.norm();
-        bool is_inside = false;
-        if (len > 0) {
-            normal_vec /= len;
-            Point start_point = Point::round(current_point.cast<double>() + normal_vec * scale_d(nozzle_diam) * 2);
-            Polyline inside_polyline{start_point, pt_inside};
-            for (ExPolygon &ep : m_current_island_polygons) {
-                if ((is_inside = ep.contains(inside_polyline)))
-                    break;
-            }
-        }
-        if (!is_inside)
-            return;
-    }
+    if (!inside_segment_valid(current_point, pt_inside, nozzle_diam, m_current_island_polygons))
+        return;
 
     ExtrusionPath inside_path(ArcPolyline(Polyline{current_point, pt_inside}), paths.back().attributes(), false);
     inside_path.attributes_mutable().mm3_per_mm = paths.back().mm3_per_mm() * 0.9;
