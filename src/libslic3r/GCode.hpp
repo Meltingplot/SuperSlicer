@@ -313,6 +313,18 @@ private:
                     ExtrusionPaths &notch_extrusion_end,
                     bool is_hole_loop,
                     bool is_full_loop_ccw);
+    /**
+     * Compute the distance from the start of a perimeter loop towards its interior.
+     *
+     * @param paths            Extrusion paths forming the loop.
+     * @param fallback_poly    Optional polygon used if `paths` do not hold the start point.
+     * @param is_hole_loop     True if the loop is printed as a hole.
+     * @param is_full_loop_ccw Orientation of the loop when closed.
+     * @param nozzle_diam      Nozzle diameter in millimeters.
+     * @param setting_max_depth Maximum inside distance in millimeters.
+     * @param inside_pt        Optional output of the computed point inside the loop.
+     * @return Distance in scaled coordinates.
+     */
     coordf_t compute_inside_distance_start(const ExtrusionPaths &paths,
                                            const Polygon *fallback_poly,
                                            bool is_hole_loop,
@@ -320,8 +332,30 @@ private:
                                            double nozzle_diam,
                                            double setting_max_depth,
                                            Point *inside_pt);
-    void            perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed);
-    void            perimeter_inside_end(ExtrusionPaths& paths, const Polygon* fallback_poly, bool is_hole_loop, bool is_full_loop_ccw, double nozzle_diam, std::string& gcode, double speed);
+
+    /**
+     * Extrude a short segment inside the loop at its starting point.
+     *
+     * @param paths         Extrusion paths forming the loop.
+     * @param fallback_poly Optional polygon to compute the inside direction.
+     * @param is_hole_loop  True if the loop is a hole.
+     * @param is_full_loop_ccw Orientation of the loop when closed.
+     * @param nozzle_diam   Nozzle diameter in millimeters.
+     * @param gcode         Output G-code string.
+     * @param speed         Extrusion speed in mm/s.
+     */
+    void perimeter_inside_start(ExtrusionPaths& paths, const Polygon* fallback_poly,
+                                bool is_hole_loop, bool is_full_loop_ccw,
+                                double nozzle_diam, std::string& gcode, double speed);
+
+    /**
+     * Extrude a short segment inside the loop at its ending point.
+     *
+     * Parameters are analogous to `perimeter_inside_start`.
+     */
+    void perimeter_inside_end(ExtrusionPaths& paths, const Polygon* fallback_poly,
+                              bool is_hole_loop, bool is_full_loop_ccw,
+                              double nozzle_diam, std::string& gcode, double speed);
 
 
 	struct InstanceToPrint
