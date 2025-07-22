@@ -5139,7 +5139,7 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
 
     size_t perimeter_idx = m_perimeter_index;
     split_at_seam_pos(loop_to_seam, is_hole_loop);
-    const Point seam_pos = loop_to_seam.first_point();
+    Point seam_pos = loop_to_seam.first_point();
     const coordf_t full_loop_length = loop_to_seam.length();
     const bool is_full_loop_ccw = loop_to_seam.polygon().is_counter_clockwise();
     //after that point, loop_to_seam can be modified by 'paths', so don't use it anymore
@@ -5225,7 +5225,10 @@ std::string GCodeGenerator::extrude_loop(const ExtrusionLoop &original_loop, con
                     Point start_point = Point::round(building_paths.front().first_point().cast<double>() + normal_vec * scale_d(nozzle_diam) * 2);
                     Polyline inside_polyline = Polyline{start_point, inside_point};
                     is_inside = ep.contains(inside_polyline);
-                    if (is_inside) break;
+                    if (is_inside) {
+                        seam_pos = inside_point; // set new seam position
+                        break;
+                    }
                 }
                 //original_loop.polygon().contains(inside_point);
                 if (!is_inside)
